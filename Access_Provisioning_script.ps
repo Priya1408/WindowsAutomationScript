@@ -1,0 +1,2598 @@
+ ###############################################################################################################################################################################################################
+## Name		 : Access Provisioning Utility                                                                                                                              				       ##
+## Version 	 : 2.0																			    				       ##
+## Creation date : 14 Nov 2016																                    				       ##
+## Modified date : 20 Jan 2017																		    				       ##
+## Authur 	 : Arun Srinivasan																	    				       ##
+## Purpose 	 : To Add users to local group members, Add share and security permission, Grant access to start, stop, pause & query services, Grant access for TS session, Grant access to shutdown a server ##
+## Applies to 	 : Windows 7/8/10/2008/2012																    				       ##
+ ###############################################################################################################################################################################################################
+
+
+
+
+[CmdletBinding()]
+
+param(
+[parameter(Mandatory=$false)]
+[string]$Inputfile,
+[parameter(Mandatory=$false)]
+[string]$Outputfile
+)
+
+
+
+###Getting script path
+$Scriptpath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+#$Scriptpath = "C:\Arun\Imp\Script Repository\HNB scripts\Provision_Scripts"
+
+
+
+###Getting script name
+$scriptname1 = $MyInvocation.MyCommand.Name
+$scriptname = $scriptname1.split(".")[-2]
+
+
+
+###Initializing variables
+$Inputfilename = $null
+$outputfoldername = $null
+$Inputfiledirectory = $null
+$outputdir = $null
+$Logfolder = $null
+$Log = $null
+$CSVDump = $null
+$Prereqstatus = $null
+$Tempdirstatus = $null
+
+
+
+###Getting input file
+Function Get-FilePath
+{
+[CmdletBinding()]
+Param(
+[String]$Filter = "|*.*",
+[String]$InitialDirectory = "$env:UserProfile\Desktop")
+
+[void][System.Reflection.Assembly]::LoadWithPartialName("System.windows.forms")
+$OpenFileDialog = New-Object System.Windows.Forms.OpenFileDialog
+$OpenFileDialog.initialDirectory = $InitialDirectory
+$OpenFileDialog.filter = $Filter
+[void]$OpenFileDialog.ShowDialog()
+$OpenFileDialog.filename
+}
+
+Function Input-form
+{
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+$form = New-Object “System.Windows.Forms.Form”
+$form.Width = 500
+$form.Height = 180
+$form.Text = "Choose Input file and output file path for $scriptname"
+$form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+$Font = New-Object System.Drawing.Font("Book Antiqua",8,[System.Drawing.FontStyle]::Regular)
+$Form.Font = $Font
+$Form.TopMost = $True
+$Form.ForeColor = "White"
+#$Form.ForeColor = "Black"
+$Form.MinimizeBox = $True
+$Form.MaximizeBox = $False
+$Form.controlbox = $False
+#$Form.UseVisualStyleBackColor = $True
+$Form.BackColor = "DarkSlateBlue"
+$Bmp = New-Object System.Drawing.Bitmap(16,16)
+$icon = [System.Drawing.Graphics]::FromImage($Bmp)
+$icon.drawline([System.Drawing.Pens]::Red,1,15,6,1)
+$icon.drawline([System.Drawing.Pens]::Red,1,15,7,1)
+$icon.drawline([System.Drawing.Pens]::Red,1,15,8,1)
+$icon.drawline([System.Drawing.Pens]::Red,11,15,6,1)
+$icon.drawline([System.Drawing.Pens]::Red,11,15,6,12)
+$icon.drawline([System.Drawing.Pens]::Red,11,15,6,16)
+$icon.drawline([System.Drawing.Pens]::Red,11,15,11,16)
+$ico = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+$Form.Icon = $ico
+
+$OKButton = New-Object System.Windows.Forms.Button
+$OKButton.Left = 150
+$OKButton.Top = 110
+$OKButton.Text = "OK"
+$OKButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
+$form.AcceptButton = $OKButton
+$form.Controls.Add($OKButton)
+
+$CancelButton = New-Object System.Windows.Forms.Button
+$CancelButton.Left = 250
+$CancelButton.Top = 110
+$CancelButton.Text = "Cancel"
+$CancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+$form.CancelButton = $CancelButton
+$form.Controls.Add($CancelButton)
+
+$Label1 = New-Object “System.Windows.Forms.Label”
+$Label1.Left = 20
+$Label1.Top = 30
+$Label1.Text = "Input File"
+$Label1.width = 100
+$form.Controls.Add($Label1)
+
+$textBox1 = New-Object “System.Windows.Forms.TextBox”
+$textBox1.Left = 125
+$textBox1.Top = 30
+$textBox1.width = 230
+$textBox1.Text = ""
+$form.Controls.Add($textBox1)
+
+$Button1 = New-Object System.Windows.Forms.Button
+$Button1.Left = 390
+$Button1.Top = 30
+$Button1.Width = 80
+$Button1.Text = "Browse"
+$Button1.Add_Click({$textBox1.Text = Get-FilePath -InitialDirectory "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}"})
+$form.Controls.Add($Button1)
+
+$Label2 = New-Object “System.Windows.Forms.Label”
+$Label2.Left = 20
+$Label2.Top = 60
+$Label2.Text = "Output File "
+$Label2.width = 100
+$form.Controls.Add($Label2)
+
+$textBox2 = New-Object “System.Windows.Forms.TextBox”
+$textBox2.Left = 125
+$textBox2.Top = 60
+$textBox2.width = 230
+$textBox2.Text = ""
+$form.Controls.Add($textBox2)
+
+Function Browsebutton
+{
+$Folderpath = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{RootFolder = 'Mycomputer';ShowNewFolderButton = $True;}
+$Folderpath.ShowDialog() | out-null
+$Browsebuttonpath = $Folderpath.SelectedPath
+Return $Browsebuttonpath
+}
+
+$Button2 = New-Object System.Windows.Forms.Button
+$Button2.Left = 390
+$Button2.Top = 60
+$Button2.Width = 80
+$Button2.Text = "Browse"
+$Button2.Add_Click({$textBox2.Text = Browsebutton})
+$form.Controls.Add($Button2)
+
+$form.Topmost = $True
+
+$form.Add_Shown({$textBox1.Select()})
+$script:result = $form.ShowDialog()
+
+If ($result -eq [System.Windows.Forms.DialogResult]::OK)
+{
+$script:Inputfile = $textBox1.Text
+$script:Outputfile = $textBox2.Text
+}
+else
+{ Break }
+
+} #Funtion close (Input-form)
+
+If ((!($Inputfile)) -or (!($Outputfile)))
+{
+Input-form
+
+If (($Inputfile -eq "") -or ($Outputfile -eq ""))
+{
+Write-host "`r`nAccess Provision script terminated. Input and output file location should not be blank`r`n" -fore red
+Break
+}
+
+} #If condition close (($Inputfile -ne "") -and ($Outputfile -ne ""))
+
+
+
+###Creating output files and Directories
+$script:Date = get-date -format 'd"_"MMM"_"yyyy"-"H"_"mm"_"ss'
+
+$script:Inputfilename = $Inputfile.Split("\")
+
+$script:outputfoldername = $scriptname + "-" + ($Inputfilename[$Inputfilename.length-1]).split(".")[0] + "-Output-"
+
+$script:Inputfiledirectory = $Inputfile | Split-Path
+
+#$outputdir = $Inputfiledirectory + "\" + $outputfoldername + $Date
+$script:outputdir = $Outputfile.trimend("\") + "\" + $outputfoldername + $Date
+
+If (!(Test-Path -Path $outputdir))
+{ New-Item -ItemType directory -Path $outputdir | out-null }
+
+$script:CSVOutput = $outputdir + "\CSV_Output"
+
+If (!(Test-Path -Path $CSVOutput))
+{ New-Item -ItemType directory -Path $CSVOutput | out-null }
+
+#CSV dump directory to store detailed output files
+$script:CSVDump = $outputdir + "\CSV_Dump"
+
+If (!(Test-Path -Path $CSVDump))
+{ New-Item -ItemType directory -Path $CSVDump | out-null }
+
+#Temp Directory and pre-requisites path
+$script:TempDir = "C:\Temp"
+$script:Rmtsharepath = "c:\Temp\Rmtshare.exe"
+$script:Subinaclpath = "c:\Temp\Subinacl.exe"
+$script:UserRightspath = "c:\Temp\UserRights.ps1"
+$script:NTFSsecpath = "c:\Temp\NTFSSecurity\4.0.0\NTFSSecurity.psm1"
+$script:PSExcelpath = "c:\temp\PSExcel\1.0.2\PSExcel.psm1"
+
+#Consolidated report to combain all CSV output files
+$script:WindowsEntitlements = $CSVOutput + "\Windows_Entitlements.csv"
+$script:ConsolidatedAccessGrantReport = $outputdir + "\Access_Grant_Validation_Report_$Date.xlsx"
+
+#CSV output files
+$script:Addacctolocalgroupoutputfile = $CSVOutput + "\Add_Accounts_To_Group_Output.csv"
+$script:Setsharepermoutputfile = $CSVOutput + "\Grant_Share_NTFS_Permissions_Output.csv"
+$script:serviceaccesspermoutputfile = $CSVOutput + "\Grant_Service_Access_Output.csv"
+$script:TSaccesspermoutputfile =  $CSVOutput + "\Grant_TS_Access_Output.csv"
+$script:Shutdownaccesspermoutputfile =  $CSVOutput + "\Grant_shutdown_Access_Output.csv"
+
+
+
+
+###Creating Log file and Directory
+$Logfolder = $outputdir + "\Logs"
+$Log = $Logfolder + "\Log_$Date.txt"
+
+#Creating log directory if not exist to store script execution log files
+If (!(Test-Path -Path $Logfolder))
+{ New-Item -ItemType directory -Path $Logfolder | out-null }
+
+#Function to record log
+Function Log ($message)
+{
+$currenttime = get-date -format 'd"_"MMM"_"yyyy"-"H"_"mm"_"ss'
+
+If ($message -eq "`r`n")
+{ Add-content -Path $Log -value ("`n") }
+else
+{ Add-content -Path $Log -value ("$currenttime : $message") }
+
+} #Function close (Log)
+
+Log "`r`n"
+Log "*** Access Provision Script Started ***`r`n"
+write-host "`r`n*** Access Provision Script Started ***`r`n" -fore cyan
+
+
+
+###Validate and copy the pre-requisites to temp directory from script located folder
+Log "`r`n"
+Log "*** Validating pre-requisites process started ***`r`n"
+write-host "*** Validating pre-requisites process started ***`r`n" -fore yellow
+Log "Pre-requisites required to execute the process and checking all required executables & modules are available in the place from where the script is executed"
+
+If (!(Test-path -path $TempDir))
+{ New-Item -ItemType directory -Path $TempDir| out-null }
+
+#RMTShare.exe validation
+If (Test-path -path $Rmtsharepath)
+{
+Log "RMTShare.exe - Pass"
+write-host "RMTShare.exe - Pass" -fore green
+}
+else
+{
+Copy-Item -path "$Scriptpath\Pre-requisites\RMTShare.exe" -destination $TempDir -force -ea silentlycontinue
+
+If (Test-path -path $Rmtsharepath)
+{
+Log "RMTShare.exe - Pass | Copied"
+write-host "RMTShare.exe - Pass" -fore green
+}
+else
+{
+Log "RMTShare.exe - Fail"
+write-host "RMTShare.exe - Fail" -fore red
+$Prereqstatus = "Fail"
+}  #If condition close (Test-path -path $Rmtsharepath)
+
+} #If condition close (Test-path -path $Rmtsharepath)
+
+#Subinacl.exe validation
+If (Test-path -path $Subinaclpath)
+{
+Log "Subinacl.exe - Pass"
+write-host "Subinacl.exe - Pass" -fore green
+}
+else
+{
+Copy-Item -path "$Scriptpath\Pre-requisites\Subinacl.exe" -destination $TempDir -force -ea silentlycontinue
+
+If (Test-path -path $Subinaclpath)
+{
+Log "Subinacl.exe - Pass | Copied"
+write-host "Subinacl.exe - Pass" -fore green
+}
+else
+{
+Log "Subinacl.exe - Fail"
+write-host "Subinacl.exe - Fail" -fore red
+$Prereqstatus = "Fail"
+
+} #If condition close (Test-path -path $Subinaclpath)
+
+} #If condition close (Test-path -path $Subinaclpath)
+
+#UserRights module validation
+If (Test-path -path $UserRightspath)
+{
+Import-module $UserRightspath | out-null
+
+If (Get-module UserRights)
+{
+Log "UserRights Module - Pass"
+write-host "UserRights Module - Pass" -fore green
+}
+else
+{
+Log "UserRights Module - Fail"
+write-host "UserRights Module - Fail" -fore red
+$Prereqstatus = "Fail"
+} #If condition close (Get-module UserRights)
+
+}
+else
+{
+Copy-Item -path "$Scriptpath\Pre-requisites\UserRights.ps1" -destination $TempDir -force -ea silentlycontinue
+Import-module $UserRightspath | out-null
+
+If (Get-module UserRights)
+{
+Log "UserRights Module - Pass | Copied"
+write-host "UserRights Module - Pass" -fore green
+}
+else
+{
+Log "UserRights Module - Fail"
+write-host "UserRights Module - Fail" -fore red
+$Prereqstatus = "Fail"
+} #If condition close (Get-module UserRights)
+
+} #If condition close (Test-path -path $UserRightspath)
+
+#NTFS security validation
+If (Test-path -path $NTFSsecpath)
+{
+Import-Module $NTFSsecpath | out-null
+
+If (Get-module NTFSSecurity)
+{
+Log "NTFSSecurity Module - Pass"
+write-host "NTFSSecurity Module - Pass" -fore green
+}
+else
+{
+Log "NTFSSecurity Module - Fail"
+write-host "NTFSSecurity Module - Fail" -fore green
+$Prereqstatus = "Fail"
+} #If condition close (Get-module NTFSSecurity)
+
+}
+else
+{
+Copy-Item -path "$Scriptpath\Pre-requisites\NTFSSecurity" -destination $TempDir -force -recurse -ea silentlycontinue
+Import-Module $NTFSsecpath | out-null
+
+If (Get-module NTFSSecurity)
+{
+Log "NTFSSecurity Module - Pass | Copied"
+write-host "NTFSSecurity Module - Pass" -fore green
+}
+else
+{
+Log "NTFSSecurity Module - Fail"
+write-host "NTFSSecurity Module - Fail" -fore green
+$Prereqstatus = "Fail"
+} #If condition close (Get-module NTFSSecurity)
+
+} #If condition close (Test-path -path $NTFSsecpath)
+
+#PSExcel module validation
+If (Test-path -path $PSExcelpath)
+{
+Import-Module $PSExcelpath | out-null
+
+If (Get-module PSexcel)
+{
+Log "PSexcel Module - Pass"
+write-host "PSexcel Module - Pass" -fore green
+}
+else
+{
+Log "PSexcel Module - Fail"
+write-host "PSexcel Module - Fail" -fore red
+$Prereqstatus = "Fail"
+} #If condition close (Get-module PSexcel)
+
+}
+else
+{
+Copy-Item -path "$Scriptpath\Pre-requisites\PSExcel" -destination $TempDir -force -recurse -ea silentlycontinue
+Import-Module $PSExcelpath | out-null
+
+If (Get-module PSexcel)
+{
+Log "PSexcel Module - Pass | Copied"
+write-host "PSexcel Module - Pass" -fore green
+}
+else
+{
+Log "PSexcel Module - Fail"
+write-host "PSexcel Module - Fail" -fore red
+$Prereqstatus = "Fail"
+} #If condition close (Get-module PSexcel)
+
+} #If condition close (Test-path -path $PSExcelpath)
+
+#Active directory module validation
+Import-module Activedirectory | out-null
+If (Get-module Activedirectory)
+{
+Log "Active Directory Module - Pass"
+write-host "Active Directory Module - Pass" -fore green
+}
+else
+{
+Log "Active Directory Module not found. Initiating install"
+Import-Module ServerManager | out-null
+Add-WindowsFeature RSAT-AD-PowerShell | out-null
+Import-Module ActiveDirectory | out-null
+
+#Verifying active directory module installation status
+If (Get-module Activedirectory)
+{
+Log "Active Directory Module - Pass | Installed"
+write-host "Active Directory Module - Pass" -fore green
+}
+else
+{
+Log "Active Directory Module - Fail"
+write-host "Active Directory Module - Fail" -fore red
+Log "Failed to install active directory module. Check it and try installing RSAT-AD-PowerShell windows feature manually before re-running this script"
+$Prereqstatus = "Fail"
+} #If condition close (Get-module Activedirectory)
+
+} #If condition close (Get-module Activedirectory)
+
+Log "`r`n"
+Log "Validating pre-requisites process completed`r`n"
+write-host "`r`nValidating pre-requisites process completed`r`n" -fore yellow
+
+If ($Prereqstatus -eq "Fail")
+{
+Log "`r`n"
+Log "Terminating this script. One or more required executables or PS modules not available on script executed machine. Refer $log to get more details`r`n"
+Write-host "`r`nTerminating this script. One or more required executables or PS modules not available on script executed machine. Refer $log to get more details`r`n" -fore red
+Break
+} #If condition close ($Prereqstatus -ne "Fail)
+
+
+
+
+###Function to remove all pre-requisites which are copied to temp directory for script execution
+Function Remove-prerequisites
+{
+
+Log "`r`n"
+Log "*** Pre-requisites removal process started ***`r`n"
+write-host "`r`n*** Pre-requisites removal process started ***`r`n" -fore yellow
+
+Remove-module Activedirectory
+Remove-module PSExcel -force
+
+If ($Tempdirstatus -eq $true)
+{
+Log "Removing $tempdir created by the script`r`n"
+write-host "Removing $tempdir created by the script"
+Remove-item -path $TempDir -recurse -force -ea silentlycontinue
+
+If (!(Test-path -path $TempDir -ea silentlycontinue))
+{
+write-host "`r`n$tempdir - Successfully removed" -fore green
+Log "$tempdir - Successfully removed"
+}
+else
+{
+write-host "`r`nFailed to remove $tempdir. Check if any file(s) are in use and remove $tempdir directory manually" -fore red
+Log "Failed to remove $tempdir. Check if any file(s) are in use and remove $tempdir directory manually"
+}
+
+}
+else
+{
+Remove-item -path "$TempDir\RMTShare.exe" -ea silentlycontinue
+Remove-item -path "$TempDir\Subinacl.exe" -ea silentlycontinue
+Remove-item -path "$TempDir\UserRights.ps1" -ea silentlycontinue
+Remove-item -path "$TempDir\NTFSSecurity" -recurse -force -ea silentlycontinue
+Remove-item -path "$TempDir\PSExcel" -recurse -force -ea silentlycontinue
+
+If (!(Test-path -path "$TempDir\RMTShare.exe"))
+{
+write-host "RMTShare.exe - Removed" -fore green
+Log "Successfully removed $TempDir\RMTShare.exe"
+}
+else
+{
+write-host "RMTShare.exe - Fail" -fore red
+Log "Failed to remove $TempDir\RMTShare.exe. Check if this file is in use or close PS console and remove this file manually"
+}
+
+If (!(Test-path -path "$TempDir\Subinacl.exe"))
+{
+write-host "Subinacl.exe - Removed" -fore green
+Log "Successfully removed $TempDir\Subinacl.exe"
+}
+else
+{
+write-host "Subinacl.exe - Fail" -fore red
+Log "Failed to remove $TempDir\Subinacl.exe. Check if this file is in use or close PS console and remove this file manually"
+}
+
+If (!(Test-path -path "$TempDir\UserRights.ps1"))
+{
+write-host "UserRights.ps1 - Removed" -fore green
+Log "Successfully removed $TempDir\UserRights.ps1"
+}
+else
+{
+write-host "UserRights.ps1 - Fail" -fore red
+Log "Failed to remove $TempDir\UserRights.ps1. Check if this file is in use or close PS console and remove this file manually"
+}
+
+If (!(Test-path -path "$TempDir\NTFSSecurity"))
+{
+write-host "NTFSSecurity Module - Removed" -fore green
+Log "Successfully removed $TempDir\NTFSSecurity"
+}
+else
+{
+write-host "NTFSSecurity Module - Fail" -fore red
+Log "Failed to remove $TempDir\NTFSSecurity. Remove NTFSSecurity module from PS console using cmdlet 'Remove-module NTFSsecurity' and then delete NTFSSecurity folder manually"
+}
+
+If (!(Test-path -path "$TempDir\PSExcel"))
+{
+write-host "PSExcel Module - Removed" -fore green
+Log "Successfully removed $TempDir\PSExcel"
+}
+else
+{
+write-host "PSExcel Module - Fail" -fore red
+Log "Failed to remove $TempDir\PSExcel. Remove NTFSSecurity module from PS console using cmdlet 'Remove-module PSExcel' and then delete NTFSSecurity folder manually"
+}
+
+} #If condition close ($Tempdirstatus -eq $true)
+
+Log "`r`n"
+Log "Pre-requisites removal process completed`r`n"
+write-host "`r`nPre-requisites removal process completed`r`n" -fore yellow
+
+} #Function close (Remove-prerequisites)
+
+
+
+###Importing input file
+$Inputsheetdata = $null
+
+Log "`r`n"
+Log "*** Reading input file (RBAC Template) ***"
+Log "Input file path - $Inputfile"
+
+$script:Inputsheetdata = Import-XLSX -Path $Inputfile -sheet "Windows Entitlements" | ? { ($_."Access Type" -match "Provision") }
+
+If ($Inputsheetdata -ne $null)
+{
+Log "Collected $($Inputsheetdata.length) provision record(s) from the input file`r`n"
+}
+else
+{
+Log "`r`n"
+Log "Terminating this script as the input file kept open or empty or corrupted`r`n"
+Write-host "`r`nTerminating this script as the input file kept open or empty or corrupted`r`n" -fore red
+Break
+} #If condition close ($Inputsheetdata -eq $null)
+
+
+
+
+###Function to create a consolidated excel report from all CSV files
+Function Consolidate-CSVfiles
+{
+
+write-host "`r`n*** Function started to collect all CSV output files and consolidate ***`r`n" -fore yellow
+Log "`r`n"
+Log "*** Function started to collect all CSV output files and consolidate ***"
+
+$csvs = $null
+$csvs1 = @()
+$Accesstype = "provision"
+
+Log "collecting CSV files info from $CSVOutput and preparing windows_Entitlements sheet"
+[array]$csvs = Get-ChildItem $CSVOutput | ? { ($_.name -like "*.csv") } | sort name
+Log "collected $($csvs.length) CSV files"
+
+Add-content -Path $WindowsEntitlements -value ('"' + "Access Type" + '","' + "Task Name" + '","' + "Host Name" + '","' + "Domain Name" + '","' + "Resource Group" + '","' + "Local Group Membership" + '","' + "Share Name" + '","' + "Share Path" + '","' + "Share Access" + '","' + "NTFS Access" + '","' + "Service Name" + '","' + "Service Access" + '","' + "Status" + '","' + "Comments" + '"')
+
+Foreach ($CSV in $CSVS)
+{
+
+Log "Processing - $CSV"
+
+$CSVname = ($CSV | split-path -leaf).Split(".")[0]
+
+Log "Importing data from $CSV"
+$CSVdata = Import-csv $CSV.fullname
+
+If ($CSVname -like "Add_Accounts_To_Group_Output")
+{
+
+Log "Collected $($CSVdata.length) records from $CSVname"
+
+For ($i = 0; $i -le ($CSVdata.length-1); $i++)
+{
+$Taskname = $null
+$HostName = $null
+$DomainName = $null
+$ResourceGroup = $null
+$LocalGroupMembership = $null
+$Status = $null
+$comments = $null
+
+$Taskname = "localgroupaccess"
+$HostName = ($CSVdata[$i].ServerName).ToLower()
+$DomainName = ($CSVdata[$i].MemberDomain).ToLower()
+$ResourceGroup = ($CSVdata[$i].MemberName).ToLower()
+$LocalGroupMembership = ($CSVdata[$i].LocalGroupName).ToLower()
+$Status = ($CSVdata[$i].Status).ToLower()
+$comments = ($CSVdata[$i].Comments).ToLower()
+
+Add-content -Path $WindowsEntitlements -value ('"' + $Accesstype + '","' + $Taskname + '","' + $HostName + '","' + $DomainName + '","' + $ResourceGroup + '","' + $LocalGroupMembership + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + $Status + '","' + $comments + '"')
+} #Forloop close ($i = 0; $i -le ($CSVdata.length-1); $i++)
+
+Log "Updated $CSV records on windows Entitlement sheet"
+
+} #If condition close ($CSVname -like "Add_Accounts_To_Group_Output")
+
+
+If ($CSVname -like "Grant_Service_Access_Output")
+{
+
+Log "Collected $($CSVdata.length) records from $CSVname"
+
+For ($i = 0; $i -le ($CSVdata.length-1); $i++)
+{
+$Taskname = $null
+$HostName = $null
+$DomainName = $null
+$ResourceGroup = $null
+$ServiceName = $null
+$ServiceAccess = $null
+$Status = $null
+$comments = $null
+
+$Taskname = "serviceaccess"
+$HostName = ($CSVdata[$i].ServerName).ToLower()
+$DomainName = ($CSVdata[$i].MemberDomain).ToLower()
+$ResourceGroup = ($CSVdata[$i].MemberName).ToLower()
+$ServiceName = ($CSVdata[$i].ServiceName).ToLower()
+$ServiceAccess = ($CSVdata[$i].AccessRights).ToLower()
+$Status = ($CSVdata[$i].Status).ToLower()
+$comments = ($CSVdata[$i].Comments).ToLower()
+
+Add-content -Path $WindowsEntitlements -value ('"' + $Accesstype + '","' + $Taskname + '","' + $HostName + '","' + $DomainName + '","' + $ResourceGroup + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + $ServiceName + '","' + $ServiceAccess + '","' + $Status + '","' + $comments + '"')
+} #Forloop close ($i = 0; $i -le ($CSVdata.length-1); $i++)
+
+Log "Updated $CSV records on windows Entitlement sheet"
+
+} #If condition close ($CSVname -like "Grant_Service_Access_Output")
+
+
+If ($CSVname -like "Grant_Share_NTFS_Permissions_Output")
+{
+
+Log "Collected $($CSVdata.length) records from $CSVname"
+
+For ($i = 0; $i -le ($CSVdata.length-1); $i++)
+{
+$Taskname = $null
+$HostName = $null
+$ShareName = $null
+$SharePath = $null
+$DomainName = $null
+$ResourceGroup = $null
+$ShareAccess = $null
+$NTFSAccess = $null
+$status = "pass"
+$comments = $null
+
+$Taskname = "shareaccess"
+$HostName = ($CSVdata[$i].ServerName).ToLower()
+$ShareName = ($CSVdata[$i].ShareName).ToLower()
+$SharePath = ($CSVdata[$i].SharePath).ToLower()
+$DomainName = ($CSVdata[$i].MemberDomain).ToLower()
+$ResourceGroup = ($CSVdata[$i].MemberName).ToLower()
+$ShareAccess = ($CSVdata[$i].SharePermission).ToLower()
+$NTFSAccess = ($CSVdata[$i].NTFSPermission).ToLower()
+$ShareStatus = ($CSVdata[$i].SharePermissionStatus).ToLower()
+$NTFSStatus = ($CSVdata[$i].NTFSPermissionStatus).ToLower()
+$Sharecomments = ($CSVdata[$i].ShareComments).ToLower()
+$NTFScomments = ($CSVdata[$i].NTFSComments).ToLower()
+$status = $ShareStatus + "; " + $NTFSStatus
+If (($Sharecomments -ne "") -and ($NTFScomments -ne ""))
+{ $comments = $Sharecomments + "; " + $NTFScomments }
+
+Add-content -Path $WindowsEntitlements -value ('"' + $Accesstype + '","' + $Taskname + '","' + $HostName + '","' + $DomainName + '","' + $ResourceGroup + '","' + "" + '","' + $ShareName + '","' + $SharePath + '","' + $ShareAccess + '","' + $NTFSAccess + '","' + "" + '","' + "" + '","' + $status + '","' + $comments + '"')
+
+} #Forloop close ($i = 0; $i -le ($CSVdata.length-1); $i++)
+
+Log "Updated $CSV records on windows Entitlement sheet"
+
+} #If condition close ($CSVname -like "Grant_Share_NTFS_Permissions_Output")
+
+
+If ($CSVname -like "Grant_shutdown_Access_Output")
+{
+
+Log "Collected $($CSVdata.length) records from $CSVname"
+
+For ($i = 0; $i -le ($CSVdata.length-1); $i++)
+{
+$Taskname = $null
+$HostName = $null
+$DomainName = $null
+$ResourceGroup = $null
+$Status = $null
+$comments = $null
+
+$Taskname = "shutdownaccess"
+$HostName = ($CSVdata[$i].ServerName).ToLower()
+$DomainName = ($CSVdata[$i].MemberDomain).ToLower()
+$ResourceGroup = ($CSVdata[$i].MemberName).ToLower()
+$Status = ($CSVdata[$i].Status).ToLower()
+$comments = ($CSVdata[$i].Comments).ToLower()
+
+Add-content -Path $WindowsEntitlements -value ('"' + $Accesstype + '","' + $Taskname + '","' + $HostName + '","' + $DomainName + '","' + $ResourceGroup + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + $Status + '","' + $comments + '"')
+} #Forloop close ($i = 0; $i -le ($CSVdata.length-1); $i++)
+
+Log "Updated $CSV records on windows Entitlement sheet"
+
+} #If condition close ($CSVname -like "Grant_shutdown_Access_Output")
+
+If ($CSVname -like "Grant_TS_Access_Output")
+{
+
+Log "Collected $($CSVdata.length) records from $CSVname"
+
+For ($i = 0; $i -le ($CSVdata.length-1); $i++)
+{
+$Taskname = $null
+$HostName = $null
+$DomainName = $null
+$ResourceGroup = $null
+$Status = $null
+$comments = $null
+
+$Taskname = "tsaccess"
+$HostName = ($CSVdata[$i].ServerName).ToLower()
+$DomainName = ($CSVdata[$i].MemberDomain).ToLower()
+$ResourceGroup = ($CSVdata[$i].MemberName).ToLower()
+$Status = ($CSVdata[$i].Status).ToLower()
+$comments = ($CSVdata[$i].Comments).ToLower()
+
+Add-content -Path $WindowsEntitlements -value ('"' + $Accesstype + '","' + $Taskname + '","' + $HostName + '","' + $DomainName + '","' + $ResourceGroup + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + $Status + '","' + $comments + '"')
+} #Forloop close ($i = 0; $i -le ($CSVdata.length-1); $i++)
+
+Log "Updated $CSV records on windows Entitlement sheet"
+
+} #If condition close ($CSVname -like "Grant_TS_Access_Output")
+
+} #Forloop close ($CSV in $CSVS)
+
+
+Log "`r`n"
+Log "Consolidating all CSV files`r`n"
+[array]$csvs1 += Get-ChildItem $CSVOutput | ? { ($_.name -eq "Windows_Entitlements.csv") }
+[array]$csvs1 += Get-ChildItem $CSVOutput | ? { (($_.name -like "*.csv") -and ($_.name -ne "Windows_Entitlements.csv")) } | sort name
+
+If ($csvs1.length -ge "1")
+{
+
+Log "CSV dump files path : '$CSVOutput'"
+Log "CSV dump file names - $csvs1.name"
+write-host "CSV dump files path : '$CSVOutput'"  -fore green
+write-host "`r`n$csvs1"
+
+$excelapp = new-object -comobject Excel.Application
+$excelapp.sheetsInNewWorkbook = $csvs1.Count
+$xlsx = $excelapp.Workbooks.Add()
+$sheet=1
+
+Log "Getting content form each CSV file and writing it to XLSX file"
+foreach ($csv1 in $csvs1)
+{
+$row=1
+$column=1
+$worksheet = $xlsx.Worksheets.Item($sheet)
+If ($csv1.name.length -ge 30)
+{
+$csvname = ($csv1.name).substring(0, [System.Math]::Min(30,$csv1.length))
+#($csvs1[0].fullname).Split("\")[$_.length-1]
+$worksheet.Name = ($csvname).split(".")[0]
+}
+else
+{
+$worksheet.Name = ($csv1.name).split(".")[0]
+}
+$file = (Get-Content $csv1.fullname) -replace '"',''
+foreach($line in $file)
+{
+$linecontents=$line -split ‘,(?!\s*\w+”)’
+foreach($cell in $linecontents)
+{
+$worksheet.Cells.Item($row,$column) = $cell
+$column++
+}
+$column=1
+$row++
+}
+$sheet++
+}
+
+Log "Saving consolidated XLSX file"
+$xlsx.SaveAs($ConsolidatedAccessGrantReport)
+$excelapp.quit()
+
+}
+else
+{
+Log "Found less than 2 CSV files on $CSVOutput. So no action taken"
+write-host "Found less than 2 CSV files on $CSVOutput. So no action taken" -fore red
+}
+
+write-host "`r`nConsolidated report file path : '$ConsolidatedAccessGrantReport'" -fore green
+Log "Consolidated report file path : '$ConsolidatedAccessGrantReport'"
+
+Log "`r`n"
+Log "CSV files consolidation process completed`r`n"
+write-host "`r`nCSV files consolidation process completed`r`n" -fore yellow
+
+} #Function close (Consolidate-CSVfiles)
+
+
+
+###Function to fetch local group members from remote servers
+Function Get-Localgroupmembers ($server)
+{
+
+$Groupmembersoutput = $CSVDump + "\" + $server + "_LocalGroupMembers_dump.csv"
+Log "Collecting all local group members list from $server"
+
+#Initializing variables
+$grouplistarray = @()
+$Servercheckin = $null
+$groups = $null
+
+$groups = Get-WMIObject win32_group -filter "LocalAccount='True'" -computername $Server | select -expandproperty name
+
+Foreach ($gr in $groups)
+{
+
+$wmigroup = $null
+$arr = @()
+
+$wmigroup = Get-WmiObject -ComputerName $Server -Query "SELECT * FROM Win32_GroupUser WHERE GroupComponent=`"Win32_Group.Domain='$server',Name='$gr'`""  
+
+If ($wmigroup -ne $null)  
+{  
+
+Foreach ($item in $wmigroup)
+{  
+$data = $item.PartComponent -split "\," 
+$domain = ($data[0] -split "=")[1] 
+$name = ($data[1] -split "=")[1] 
+$arr += ("$domain\$name").Replace("""","") 
+[Array]::Sort($arr) 
+} #Forloop close ($item in $wmigroup)
+
+Foreach ($ar in $arr)
+{
+
+$getADgroupmembers = $null
+$getADgroupmemberserror= $null
+
+$grouplist = @()
+$grouplist = New-Object PSObject
+
+$grouplist | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $server
+$grouplist | Add-Member -MemberType NoteProperty -Name "LocalGroupName" -Value $gr
+$grouplist | Add-Member -MemberType NoteProperty -Name "Members" -Value $ar
+
+Try { $getADgroupmembers = Get-ADGroupMember -Identity $ar -ea stop -Recursive | Select -expandproperty Name }
+Catch { $getADgroupmemberserror = "Yes" }
+
+If ($getADgroupmemberserror -ne "Yes")
+{
+$subgrpmem = @()
+
+$grouplist| Add-Member -MemberType NoteProperty -Name "MemberType" -Value "Group"
+
+$getADgroupmembers | % { $subgrpmem += $_ + ";" }
+
+$grouplist | Add-Member -MemberType NoteProperty -Name "SubGroupMembers" -Value $($subgrpmem)
+}
+else
+{
+$grouplist | Add-Member -MemberType NoteProperty -Name "MemberType" -Value "User"
+$grouplist | Add-Member -MemberType NoteProperty -Name "SubGroupMembers" -Value ""
+}
+
+$grouplistarray += $grouplist
+
+} #Forloop close ($ar in $arr)
+
+} #If condition close ($wmigroup -ne $null)
+
+} #Forloop close ($gr in $groups)
+
+$grouplistarray | Export-csv $Groupmembersoutput -notypeinformation
+Log "Exported local group members list to $Groupmembersoutput"
+
+} #Function close (Get-Localgroupmembers)
+
+
+###Function to add domain/local users/groups to local group on remote computers
+Function Add-Groupmembers
+{
+
+write-host "`r`n*** Function started to provision local group access from the RBAC template ***`r`n" -fore yellow
+Log "`r`n"
+Log "*** Function started to provision local group access from the RBAC template ***`r`n"
+
+$Addgroupinput = $null
+$Maxarraysize = $null
+
+Log "Collecting local group access provisionning list"
+#[array]$Addgroupinput =  Import-csv $Addacctolocalgroupinputfile
+[array]$Addgroupinput =  $Inputsheetdata | ? { ($_."task name" -match "LocalGroupAccess") }
+
+If ([bool]$addgroupinput -ne "")
+{
+
+#Creating custom CSV file table header
+Add-content -Path $Addacctolocalgroupoutputfile -value ('"' + "ServerName" + '","' + "LocalGroupName" + '","' + "MemberDomain" + '","' + "MemberName" + '","' + "Status" + '","' + "Comments" + '"')
+
+[int]$K = 0
+$Maxarraysize = $Addgroupinput.length
+Log "Collected $($Addgroupinput.length) records to provision"
+
+For ($i = 0; $i -le ($Addgroupinput.length-1); $i++)
+{
+
+#Initializing varibles
+$servername = $null
+$Localgroupname = $null
+$Accountdomain = $null
+$Accountname = $null
+$Localgroup = $null
+$User = $null
+$Admgrpmemerror = $null
+$getdomain = $null
+$getdomainerror = $null
+$Accalreadyexist = $null
+
+$getdomain = $null
+$getdomainerror = $null
+
+$Tempgrouprecorddump = $null
+$Tempacc = $null
+$Tempgrouprecord = $null
+
+$Adverify = $null
+$Adverifyerror = $null
+$Groupaccessstatus = $null
+$Groupaccessfailurereason = $null
+
+#Storing data pulled from the input file into variables to process in loop
+$servername = $Addgroupinput[$i]."Host Name"
+$Localgroupname = $Addgroupinput[$i]."Local Group Membership"
+$Accountdomain = $Addgroupinput[$i]."Domain Name"
+$Accountname = $Addgroupinput[$i]."Resource Group"
+#$Groupscope = $Addgroupinput[$i].GroupScope
+
+$k++
+write-host "$k/$Maxarraysize. Provisionning - $servername - $Accountdomain\$Accountname - $Localgroupname - " -nonewline
+Log "`r`n"
+Log "$k/$Maxarraysize. Provisionning - $servername - $Accountdomain\$Accountname - $Localgroupname"
+
+
+Log "Validating server reachability and collecting domain name from $servername"
+Try { $getdomain = Get-WmiObject Win32_ComputerSystem -ComputerName $servername -ea stop | select -expandproperty domain }
+catch { $getdomainerror = "Yes" }
+
+If ($getdomainerror -ne "Yes")
+{
+
+Log "Server reachable"
+
+#Assigning FQDN based on domain name mentioned in the input file. This will be used to query AD
+$rootFQDN = $null
+
+If ($Accountdomain -like "hbanc")
+{ $rootFQDN = "hbanc.hban.us" }
+
+If ($Accountdomain -like "hbicorp")
+{ $rootFQDN = "hbicorp.huntington.com" }
+
+If ($Accountdomain -like "hbient")
+{ $rootFQDN = "hbient.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "hbiusers")
+{ $rootFQDN = "hbiusers.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "qbanc")
+{ $rootFQDN = "qbanc.hban.us" }
+
+If ($Accountdomain -like "hbicorptest")
+{ $rootFQDN = "hbicorptest.huntington.com" }
+
+If ($Accountdomain -like "hbienttest")
+{ $rootFQDN = "hbienttest.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "hbiuserstest")
+{ $rootFQDN = "hbiuserstest.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "LTPCHE032270917")
+{ $rootFQDN = "LTPCHE032270917" }
+
+#Validate and call funtion to pull complete group members dump if not available. For each server, a dump file will be created
+If (!(Test-Path -Path ($CSVDump + "\" + $servername + "_LocalGroupMembers_dump.csv")))
+{ Get-Localgroupmembers $servername }
+
+#Importing complete group members dump to verify if the given account already has access on local group
+[array]$Tempgrouprecorddump = Import-csv ($CSVDump + "\" + $servername + "_LocalGroupMembers_dump.csv")
+
+#$Tempacc = $Accountdomain + "\" + $Accountname
+
+Log "Validating '$Accountdomain\$Accountname' already exist on $Localgroupname group"
+$Tempgrouprecord = $Tempgrouprecorddump | ? { (($_.localgroupname -like $Localgroupname) -and ($_.Members -like "$Accountdomain\$Accountname")) }
+
+If ($Tempgrouprecord -eq $null)
+{
+
+Log "Found '$Accountdomain\$Accountname' not exist on $Localgroupname group"
+
+#$acc = "$Accountdomain\$Accountname"
+#$grouparg = "'" + "Net localgroup $Localgroupname $acc /add" + "'"
+#$psexeccommand = "\\$ServerName -accepteula -h -e cmd.exe /c  $grouparg"
+
+#start-process -FilePath Psexec -ArgumentList $psexeccommand -wait -passthru | out-null
+
+#This condition is to add users into AD group based on group scope mentioned in the input file
+#If ($Groupscope -eq "ADgroup")
+#{
+
+#Try
+#{
+#Log "Adding ($Accountname) to ($rootFQDN\$Localgroupname) group"
+#Add-groupmember -identity $Localgroupname -members $Accountname -server $rootFQDN
+#}
+#Catch
+#{
+#Log "Error occured"
+#$Admgrpmemerror = "Yes"
+#}
+
+#}
+
+#This condition is to add users to local group based on group scope mentioned in the input file
+#If ($Groupscope -eq "Localgroup")
+#{
+
+$error.clear()
+$Admgrpmemerror = $null
+$arr = @()
+
+#Try Catch block to add resource group into local group and capture error in the log file
+Try
+{
+Log "Adding ($Accountdomain\$Accountname) to ($servername\$Localgroupname) group"
+$Localgroup = [ADSI]”WinNT://$servername/$Localgroupname”
+$User = [ADSI]”WinNT://$Accountdomain/$Accountname”
+$Localgroup.Add($User.Path)
+}
+Catch
+{
+#Log "$error[0].exception"
+$Admgrpmemerror = "Yes"
+}
+
+#} #If condition close ($Groupscope -eq "User")
+
+}
+else
+{
+$Accalreadyexist = "Yes"
+} #If condition close (![Bool]($Tempgrouprecord | ? { (($_.groupname -like $Localgroupname) -and ($_.Members -like $Tempacc)) }))
+
+#Checking whether member already exist
+If ($Accalreadyexist -ne "Yes")
+{
+
+$wmigroup = Get-WmiObject -ComputerName $Servername -Query "SELECT * FROM Win32_GroupUser WHERE GroupComponent=`"Win32_Group.Domain='$servername',Name='$Localgroupname'`""
+
+If ($wmigroup -ne $null)  
+{
+
+#Removing unwanted list from the WMI query output and store only needed permission data into variable $arr
+Foreach ($item in $wmigroup)
+{  
+$data = $item.PartComponent -split "\," 
+$domain = ($data[0] -split "=")[1] 
+$name = ($data[1] -split "=")[1] 
+[array]$arr += ("$domain\$name").Replace("""","") 
+[Array]::Sort($arr) 
+} #Forloop close ($item in $wmigroup)
+
+} #If condition close ($wmigroup -ne $null)
+
+#Verifying resource group availability in AD
+Try { $Adverify = (![Bool](Get-ADgroup $Accountname -server $rootFQDN)) }
+Catch { $Adverifyerror = "Yes" }
+
+Log "Validating granted local group access"
+If (($Admgrpmemerror -ne "Yes") -and ($arr -contains "$Accountdomain\$Accountname"))
+{
+Log "Successfully added '$Accountdomain\$Accountname' to local group '$servername\$Localgroupname'"
+$Groupaccessstatus = "pass"
+}
+elseif ($rootFQDN -eq $null)
+{
+Log "Failed to add '$Accountdomain\$Accountname' to local group '$servername\$Localgroupname' - Mentioned domain name '$Accountdomain' for '$Accountname' is incorrect"
+$Groupaccessstatus = "fail"
+$Groupaccessfailurereason = "Mentioned domain name ($Accountdomain) for ($Accountname) is incorrect"
+}
+elseIf ($Adverifyerror -eq "Yes")
+{
+Log "Failed to add '$Accountdomain\$Accountname' to local group '$servername\$Localgroupname' - '$Accountname' not exist on domain '$rootFQDN'"
+$Groupaccessstatus = "fail"
+$Groupaccessfailurereason = "($Accountname) not exist on domain ($rootFQDN)"
+}
+else
+{
+Log "Failed to add '$Accountdomain\$Accountname' to local group '$servername\$Localgroupname'"
+$Groupaccessstatus = "fail"
+$Groupaccessfailurereason = "N/A"
+} #If condition close (($Admgrpmemerror -ne "Yes") -and ($arr -contains "$Accountdomain\$Accountname"))
+
+}
+else
+{
+Log "Found '$Accountdomain\$Accountname' already exist on local group '$servername\$Localgroupname' - No action taken"
+$Groupaccessstatus = "pass"
+$Groupaccessfailurereason = "($Accountdomain\$Accountname) already exist on local group ($servername\$Localgroupname)"
+} #If condition close ($Accalreadyexist -ne "Yes")
+
+write-host "Completed" -fore green
+
+}
+else
+{
+Log "Server not accessible"
+$Groupaccessstatus = "fail"
+$Groupaccessfailurereason = "Server not accessible"
+write-host "server not accessible" -fore red
+} #If condition close ($getdomainerror -ne "Yes")
+
+Add-content -Path $Addacctolocalgroupoutputfile -value ('"' + $servername + '","' + $Localgroupname + '","' + $Accountdomain + '","' + $Accountname + '","' + $Groupaccessstatus + '","' + $Groupaccessfailurereason + '"')
+
+} #Forloop close ($i = 0; $i -le ($Addgroupinput.length-1); $i++)
+
+}
+else
+{
+Log "$Inputfile - Input file doesn't has any local group access provisionning task. So no action taken"
+Write-host "`r`n$Inputfile - Input file doesn't has any local group access provisionning task. So no action taken" -fore red
+} #If condition close ($addgroupinput -ne $null)
+
+Log "`r`n"
+Log "Group access provisioning process completed`r`n"
+write-host "`r`nGroup access provisioning process completed`r`n" -fore yellow
+
+} #Function close (Add-Groupmembers)
+
+
+
+###Function to get all share folders with share permission from a server
+Function Get-ShareNTFSPermission ($server)
+{
+
+$GetShareNTFSpermissionoutput = $CSVDump + "\" + $server + "_Share_NTFS_permission_dump.csv"
+Log "Collecting all shared folders list with share and NTFS permission from $server"
+
+#Initializing variables
+$GetShareNTFSvalarray = @()
+$sharefolders = $null
+$Servercheckin = $null
+
+#Collecting all shared folder information
+[array]$sharefolders = Get-WmiObject -Class Win32_Share -computer $server | ? { $_.path -ne "" }
+
+Foreach ($share in $sharefolders)
+{
+
+#Initializing variables
+$Sharename = $null
+$sharepath = $null
+$sharepath1 = $null
+$sharedes = $null
+
+$serSharename = $null
+$serSharename1 = $null
+$sersharepath = $null
+$sersharepath1 = $null
+
+$Sharepermissionlist1 = ""
+$NTFSpermissionlist = ""
+$Sharepermissionlist = @()
+$ShareNTFSarraylength = $null
+$Sharepermlength = $null
+$NTFSpermlength = $null
+
+#Storing data pulled from the input file into variables to process in loop
+$Sharename = $share.Name
+$sharepath = $share.Path
+$sharepath1 = ($share.Path).replace(":","$")
+$sharedes = $share.Description
+
+#Storing custom formated data in the variable as per utility requirement
+$serSharename1 = "\\$server\$Sharename"
+$serSharename = "\\" + $server + "\" + '"' + $Sharename + '"'
+$sersharepath = "\\$server\$sharepath1"
+
+#Collecting share access list
+[array]$Sharepermissionlist1 = c:\Temp\Rmtshare.exe $serSharename
+
+#Collecting NTFS access list
+[array]$NTFSpermissionlist = Get-NTFSAccess $sersharepath | ? { ($_.Account -notlike "NT SERVICE\TrustedInstaller") } | select Account, AccessRights, Accesscontroltype, IsInherited, InheritedFrom, PropagationFlags, InheritanceFlags, InheritanceEnabled
+
+$GetOut = $False
+
+#Trimming unwanted list from the RMTshare output and storing needed permission entries into $Sharepermissionlist array
+Foreach ($GetLine in $Sharepermissionlist1)
+{
+
+If ($GetLine -like "")
+{ $GetOut = $False }
+
+If ($GetOut -eq $True)
+{ [array]$Sharepermissionlist += $GetLine.trim() }
+
+If ($GetLine -like 'Permissions:')
+{ $GetOut = $True }
+
+} #Forloop close ($GetLine In $Sharepermissionlist1)
+
+#Comparing share and ntfs access list and considering the higher value of array length to use in for loop to capture data in to $GetShareNTFSvalarray 
+If ($Sharepermissionlist -ne $null)
+{ $Sharepermlength = $Sharepermissionlist.length }
+else
+{ $Sharepermlength = "0" }
+
+If ($NTFSpermissionlist -ne $null)
+{ $NTFSpermlength = $NTFSpermissionlist.length }
+else
+{ $NTFSpermlength = "0" }
+
+If ($Sharepermlength -gt $NTFSpermlength)
+{ $ShareNTFSarraylength = $Sharepermlength }
+else
+{ $ShareNTFSarraylength = $NTFSpermlength }
+
+#Capturing Share and NTFS access list and storing it in $GetShareNTFSvalarray array
+For ($j = 0; $j -le ($ShareNTFSarraylength-1); $j++)
+{
+
+$Getval1 = $null
+$Getval2 = $null
+$Getval11 = $null
+$Getval12 = $null
+
+$NTFSaccessdomain = $null
+$NTFSaccessname = $null
+$NTFSaccessrights = $null
+$NTFSaccesstype = $null
+$NTFSaccessinheritance1 = $null
+$NTFSaccessinheritance2 = $null
+$NTFSaccessinheritance3 = $null
+$NTFSaccessinheritance4 = $null
+$NTFSaccesspropagation = $null
+
+#Splitting share access domain name and SAM account name
+If (($Sharepermissionlist) -and ($Sharepermissionlist[$j] -ne $null))
+{
+$Getval1 = ($Sharepermissionlist[$j].split(":")[0]).trim()
+$Getval2 = ($Sharepermissionlist[$j].split(":")[1]).trim()
+
+$Getval11 = $Getval1.split("\")[0]
+$Getval12 = $Getval1.split("\")[1]
+}
+
+#Splitting NTFS access domain name and SAM account name
+If (($NTFSpermissionlist) -and ($NTFSpermissionlist[$j] -ne $null))
+{
+$NTFSaccessdomain = ($NTFSpermissionlist[$j] | select -expandproperty account | select -expandproperty accountname).split("\")[0]
+$NTFSaccessname = ($NTFSpermissionlist[$j] | select -expandproperty account | select -expandproperty accountname).split("\")[1]
+
+$NTFSaccessrights = (($NTFSpermissionlist[$j].AccessRights).tostring()).replace(",",";")
+$NTFSaccesstype = $NTFSpermissionlist[$j].Accesscontroltype
+$NTFSaccessinheritance1 = $NTFSpermissionlist[$j].InheritanceEnabled
+$NTFSaccessinheritance2 = $NTFSpermissionlist[$j].IsInherited
+$NTFSaccessinheritance3 = $NTFSpermissionlist[$j].InheritedFrom
+$NTFSaccessinheritance4 = (($NTFSpermissionlist[$j].InheritanceFlags).tostring()).replace(",",";")
+$NTFSaccesspropagation = $NTFSpermissionlist[$j].PropagationFlags
+}
+
+#Print all headers like servername,domain name once per server in the CSV report
+$GetShareNTFSval = @()
+$GetShareNTFSval = New-Object PSObject
+
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ServerDomain" -Value $getdomain
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ShareName" -Value $Sharename
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "NetworkSharePath" -Value $serSharename1
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "LocalSharePath" -Value $sharepath
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "Description" -Value $sharedes
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "SharememberDomain" -Value $Getval11
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "SharememberName" -Value $Getval12
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ShareAccessLevel" -Value $Getval2
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "NTFSmemberDomain" -Value $NTFSaccessdomain
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "NTFSmemberName" -Value $NTFSaccessname
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "NTFSAccesslevel" -Value $NTFSaccessrights
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "NTFSAccessType" -Value $NTFSaccesstype
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "InheritanceEnabled" -Value $NTFSaccessinheritance1
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "IsInherited" -Value $NTFSaccessinheritance2
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "InheritedFrom" -Value $NTFSaccessinheritance3
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "PropagationFlags" -Value $NTFSaccesspropagation
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "InheritanceFlags" -Value $NTFSaccessinheritance4
+
+$GetShareNTFSvalarray += $GetShareNTFSval
+} #Forloop close ($j = 0; $j -le ($GetShareperm.length-1); $j++)
+
+} #Forloop close ($share in $sharefolders)
+
+$GetShareNTFSvalarray | Export-csv $GetShareNTFSpermissionoutput -notypeinformation
+Log "Exported share and NTFS permission list into $GetShareNTFSpermissionoutput"
+
+} #Function close (Get-ShareNTFSPermission)
+
+
+###Function to read the input file and call add-sharepermission function and set the permission
+Function Add-shareNTFSpermission
+{
+
+write-host "`r`n*** Function started to provision share and NTFS access from the RBAC template ***`r`n" -fore yellow
+Log "`r`n"
+Log "*** Function started to provision share and NTFS access from the RBAC template ***`r`n"
+
+$Setshareperminput = $null
+$Maxarraysize = $null
+
+Log "Collecting shared folder access provisionning list"
+#[array]$Setshareperminput =  Import-csv $Setshareperminputfile
+[array]$Setshareperminput =  $Inputsheetdata | ? { ($_."task name" -match "ShareAccess") }
+
+If ([bool]$Setshareperminput -ne "")
+{
+
+#Adding headers to output CSV file
+Add-content -Path $Setsharepermoutputfile -value ('"' + "ServerName" + '","' + "ShareName" + '","' + "SharePath" + '","' + "MemberDomain" + '","' + "MemberName" + '","' + "SharePermission" + '","' + "NTFSPermission" + '","' + "SharePermissionStatus" + '","' + "NTFSPermissionStatus" + '","' + "ShareComments" + '","' + "NTFSComments" + '"')
+
+[int]$K = 0
+$Maxarraysize = $Setshareperminput.length
+Log "Collected $($Setshareperminput.length) records to provision"
+
+For ($i = 0; $i -le ($Setshareperminput.length-1); $i++)
+{
+
+#Initializing variables
+$server = $null
+$sharepath  = $null
+$sharepath1  = $null
+$sharename  = $null
+$Accountdomain  = $null
+$accountname  = $null
+$Accperm  = $null
+$getdomain  = $null
+$getdomainerror  = $null
+
+$sersharename = $null
+$sersharepath = $null
+$Sharearg = $null
+$AccessRule = $null
+$ACL = $null
+$sershareuser = $null
+
+$sharevalstatus = $null
+$NTFSvalstatus = $null
+$SharefailureReason = $null
+$NTFSfailureReason = $null
+$NTFSaccesserror = $null
+
+$Adverify = $null
+$Adverifyerror = $null
+
+$Tempsharerecorddump = $null
+$Tempsharerecord = $null
+$TempNTFSrecord = $null
+
+#Storing data pulled from the input file into variables to process in loop
+$server = $Setshareperminput[$i]."Host Name"
+$sharename = $Setshareperminput[$i]."Share Name"
+$sharepath1 = $Setshareperminput[$i]."Share Path"
+$Accountdomain = $Setshareperminput[$i]."Domain Name"
+$accountname = $Setshareperminput[$i]."Resource Group"
+$Accpermshare = $Setshareperminput[$i]."Share Access"
+$AccpermNTFS = $Setshareperminput[$i]."NTFS Access"
+$sharepath = $sharepath1.Replace(":","$")
+
+$k++
+write-host "$k/$Maxarraysize. Provisionning - $server - $Accountdomain\$accountname - $sharename - " -nonewline
+Log "`r`n"
+Log "$k/$Maxarraysize. Provisionning - $server - $Accountdomain\$accountname - $sharename"
+
+Log "Validating server reachability and collecting domain name from $server"
+Try { $getdomain = Get-WmiObject Win32_ComputerSystem -ComputerName $server -ea stop | select -expandproperty domain }
+catch { $getdomainerror = "Yes" }
+
+If ($getdomainerror -ne "Yes")
+{
+
+Log "Server reachable"
+
+#Assigning FQDN based on domain name mentioned in the input file. This will be used to query AD
+$rootFQDN = $null
+
+If ($Accountdomain -like "hbanc")
+{ $rootFQDN = "hbanc.hban.us" }
+
+If ($Accountdomain -like "hbicorp")
+{ $rootFQDN = "hbicorp.huntington.com" }
+
+If ($Accountdomain -like "hbient")
+{ $rootFQDN = "hbient.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "hbiusers")
+{ $rootFQDN = "hbiusers.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "qbanc")
+{ $rootFQDN = "qbanc.hban.us" }
+
+If ($Accountdomain -like "hbicorptest")
+{ $rootFQDN = "hbicorptest.huntington.com" }
+
+If ($Accountdomain -like "hbienttest")
+{ $rootFQDN = "hbienttest.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "hbiuserstest")
+{ $rootFQDN = "hbiuserstest.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "LTPCHE032270917")
+{ $rootFQDN = "LTPCHE032270917" }
+
+If (!(Test-Path -Path ($CSVDump + "\" + $server + "_Share_NTFS_permission_dump.csv")))
+{ Get-ShareNTFSPermission $server }
+
+#Storing custom formated data in the variable as per utility input format requirement
+$sersharename = "\\" + $server + "\" + '"' + $Sharename + '"'
+$sersharename1 = "\\$server\$Sharename"
+$sersharepath = "\\$server\$sharepath"
+$sershareuser = "$Accountdomain\$accountname"
+
+#Importing complete share and NTFS access dump to verify if the mentioned account already have access
+[array]$Tempsharerecorddump = Import-csv ($CSVDump + "\" + $server + "_Share_NTFS_permission_dump.csv")
+
+If ($Accpermshare -like "Fullcontrol")
+{ $Accpermshare = "Full control" }
+
+###Provisionning share access###
+
+Log "Validating '$Accountdomain\$accountname' already have share access($Accpermshare) on '$sersharename1'"
+$Tempsharerecord = $Tempsharerecorddump | ? { (($_.ServerName -like $server) -and ($_.ShareName -like $sharename) -and ($_.LocalSharePath -like $sharepath1) -and ($_.ShareMemberDomain -like $Accountdomain) -and ($_.ShareMemberName -like $accountname) -and ($_.ShareAccessLevel -like "*$Accpermshare*")) }
+
+If ($Accpermshare -like "Full control")
+{ $Accpermshare = "Fullcontrol" }
+
+If ($Tempsharerecord -eq $null)
+{
+
+Log "Found '$Accountdomain\$accountname' dont have share access($Accpermshare) on '$sersharename1'"
+Log "Granting share access($Accpermshare) for '$sershareuser' on shared folder '$sersharename1'"
+
+#Setting up share permission using RMTshare.exe
+$Sharearg = $sersharename + " /grant " + $sershareuser + ":" + $Accpermshare
+
+start-process -FilePath rmtshare.exe -ArgumentList $Sharearg -wait -passthru | out-null
+
+#Share permission Validation process
+start-sleep 01
+
+$Shareval = $null
+$Shareperm1 = @()
+$line = $null
+
+#Fetching permission list to Validate granted access
+[array]$Shareval = rmtshare.exe $sersharename
+
+$Out = $False
+
+#Trimming unwanted lines from the RMTshare output and storing needed permission entries into $Sharepermissionlist array
+Foreach ($Line In $Shareval)
+{
+
+If ($Line -like "")
+{$Out = $False}
+
+If ($Out -eq $True)
+{$Shareperm1 += $Line.trim() }
+
+If ($Line -like 'Permissions:')
+{$Out = $True}
+
+} #Forloop close ($Line In $Shareval)
+
+#Splitting domain and user name to store on different columns
+$Sharevalarray = @()
+$val1 = $null
+$val2 = $null
+
+For ($j = 0; $j -le ($Shareperm1.length-1); $j++)
+{
+$val1 = ($Shareperm1[$j].split(":")[0]).trim()
+$val2 = ($Shareperm1[$j].split(":")[1]).trim()
+
+$Shareval = @()
+$Shareval = New-Object PSObject
+
+$Shareval | Add-Member -MemberType NoteProperty -Name "User" -Value $val1
+$Shareval | Add-Member -MemberType NoteProperty -Name "Access" -Value $val2
+
+$Sharevalarray += $Shareval
+} #Forloop close ($j = 0; $j -le ($Shareperm1.length-1); $j++)
+
+$sharevalstatus = $null
+$NTFSvalstatus = $null
+
+If ($Accpermshare -like "Fullcontrol")
+{ $Accpermshare = "Full control" }
+
+#Verifying resource group availability in AD
+Try { $Adverify = (![Bool](Get-ADgroup $accountname -server $rootFQDN)) }
+Catch { $Adverifyerror = "Yes" }
+
+Log "Validating granted share access"
+If ([Bool]($Sharevalarray | ? { (($_.user -like "$Accountdomain\$accountname") -and ($_.Access -like $Accpermshare)) }))
+{
+Log "Successfully granted share permission($Accpermshare) for '$Accountdomain\$accountname' on '$sersharename1'"
+$sharevalstatus = "pass"
+}
+#Verifying given account already has share access on shared folder
+elseif ([Bool]($Sharevalarray | ? { ($_.user -like "$Accountdomain\$accountname") }))
+{
+Log "Failed to grant share permission($Accpermshare) for '$Accountdomain\$accountname' on '$sersharename1' - '$accountname' already has higher/lower level of access on shared folder '$sersharename1'"
+$SharefailureReason = "($accountname) already has higher/lower level of access on shared folder ($sersharename1)"
+$sharevalstatus = "fail"
+}
+#Verifying given domain exist
+elseif ($rootFQDN -eq $null)
+{
+Log "Failed to grant share permission($Accpermshare) for '$Accountdomain\$accountname' on '$sersharename1' - Mentioned domain name '$Accountdomain' for '$Accountname' is incorrect"
+$sharevalstatus = "fail"
+$SharefailureReason = "mentioned domain name ($Accountdomain) for ($Accountname) is incorrect"
+}
+#Verifying given resource group exist in AD
+elseIf ($Adverifyerror -eq "Yes")
+{
+Log "Failed to grant share permission($Accpermshare) for '$Accountdomain\$accountname' on '$sersharename1' - '$Accountname' not exist on domain '$rootFQDN'"
+$sharevalstatus = "fail"
+$SharefailureReason = "($accountname) not exist on domain ($rootFQDN)"
+}
+else
+{
+Log "Failed to grant share permission($Accpermshare) for '$Accountdomain\$accountname' on '$sersharename1'"
+$sharevalstatus = "fail"
+$SharefailureReason = "N/A"
+} #If condition close ([Bool]($Sharevalarray | ? { (($_.user -like "$Accountdomain\$accountname") -and ($_.Access -like $Accpermshare)) }))
+
+}
+else
+{
+$sharevalstatus = "pass"
+$SharefailureReason = "($accountname) already have share access($Accpermshare) on shared folder ($sersharename1)"
+Log "Found '$accountname' already have share access($Accpermshare) on shared folder '$sersharename1'"
+} #If condition close ($Tempsharerecord -eq $null)
+
+
+###Provisionning NTFS access###
+
+Log "Validating '$Accountdomain\$accountname' already have NTFS access($AccpermNTFS) on $sersharepath"
+$TempNTFSrecord = $Tempsharerecorddump | ? { (($_.ServerName -like $server) -and ($_.ShareName -like $sharename) -and ($_.LocalSharePath -like $sharepath1) -and ($_.NTFSMemberDomain -like $Accountdomain) -and ($_.NTFSMemberName -like $accountname) -and ($_.NTFSAccesslevel -like "*$AccpermNTFS*")) }
+
+If ($TempNTFSrecord -eq $null)
+{
+
+#Setting up NTFS permission using NTFSSecurity module cmdlet
+#$AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($sershareuser,$AccpermNTFS,"ContainerInherit,ObjectInherit","None","Allow")
+#$ACL = Get-NTFSAccess $sersharepath
+#$ACL.SetAccessRule($AccessRule)
+#set-acl $sersharepath -AclObject $acl
+
+Log "Found '$Accountdomain\$accountname' dont have NTFS access($Accpermshare) on $sersharepath"
+Log "Granting NTFS access($AccpermNTFS) for '$Accountdomain\$accountname' on $sersharepath"
+
+$error.clear()
+
+Try { Add-NTFSAccess -Path $sersharepath -Account $sershareuser -AccessRights $AccpermNTFS }
+Catch {
+#Log "$error[0].exception"
+$NTFSaccesserror = "Yes"
+}
+
+Log "Validating granted NTFS access"
+If ([Bool](Get-NTFSAccess $sersharepath | ? { (($_.AccessRights -like "*$AccpermNTFS*") -and ($_.Account -like "*$Accountdomain\$accountname*")) }))
+{
+Log "Successfully granted NTFS permission($AccpermNTFS) for '$Accountdomain\$accountname' on '$sersharepath'"
+$NTFSvalstatus = "pass"
+}
+#Verifying given account already has NTFS access on shared folder
+elseif ([Bool](Get-NTFSAccess $sersharepath | ? { ($_.Account -like "*$Accountdomain\$accountname*") }))
+{
+Log "Failed to grant NTFS permission($AccpermNTFS) for '$Accountdomain\$accountname' on '$sersharepath' - Found '$accountname' already has higher/lower level of access on shared folder '$sersharepath'"
+$NTFSfailureReason = "($accountname) already has higher/lower level of access on shared folder ($sersharepath)"
+$NTFSvalstatus = "fail"
+}
+#Verifying given domain exist
+elseif ($rootFQDN -eq $null)
+{
+Log "Failed to grant NTFS permission($AccpermNTFS) for '$Accountdomain\$accountname' on '$sersharepath' - Mentioned domain name '$Accountdomain' for '$Accountname' is incorrect"
+$NTFSvalstatus = "fail"
+$NTFSfailureReason = "mentioned domain name ($Accountdomain) for ($Accountname) is incorrect"
+}
+#Verifying given account exist in AD
+elseIf ($Adverifyerror -eq "Yes")
+{
+Log "Failed to grant NTFS permission($AccpermNTFS) for '$Accountdomain\$accountname' on '$sersharepath' - '$Accountname' not exist on domain '$rootFQDN'"
+$NTFSvalstatus = "fail"
+$NTFSfailureReason = "($accountname) not exist on domain ($rootFQDN)"
+}
+else
+{
+Log "Failed to grant NTFS permission($AccpermNTFS) for '$Accountdomain\$accountname' on '$sersharepath'"
+$NTFSvalstatus = "fail"
+$NTFSfailureReason = "N/A"
+} #If condition close ([Bool](Get-NTFSAccess $sersharepath | ? { (($_.AccessRights -like "*$AccpermNTFS*") -and ($_.Account -like "*$Accountdomain\$accountname*")) }))
+
+}
+else
+{
+$NTFSvalstatus = "pass"
+$NTFSfailureReason = "($accountname) already has NTFS access($AccpermNTFS) on shared folder ($sersharepath)"
+Log "Found '$accountname' already has NTFS access($AccpermNTFS) on shared folder '$sersharepath'"
+} #If condition close ($TempNTFSrecord -eq $null)
+
+write-host "Completed" -fore green
+
+}
+else
+{
+Log "server not accessible"
+$SharefailureReason = "server not accessible"
+$sharevalstatus = "fail"
+$NTFSfailureReason = "server not accessible"
+$NTFSvalstatus = "fail"
+write-host "server not accessible" -fore red
+} #If condition close ($getdomainerror -ne "Yes")
+
+Add-content -Path $Setsharepermoutputfile -value ('"' + $server + '","' + $sersharename1 + '","' + $sharepath1 + '","' + $Accountdomain + '","' + $accountname + '","' + $Accpermshare + '","' + $AccpermNTFS + '","' + $sharevalstatus + '","' + $NTFSvalstatus + '","' + $SharefailureReason + '","' + $NTFSfailureReason + '"')
+
+} #Forloop close ($i = 0; $i -le ($Setshareperminput.length-1); $i++)
+
+}
+else
+{
+Write-host "$Inputfile - Input file doesn't has any share/NTFS access provisionning task. So no action taken" -fore red
+Log "$Inputfile - Input file doesn't has any share/NTFS access provisionning task. So no action taken"
+} #If condition close ([bool]$Setshareperminput -ne $null)
+
+Log "Removing NTFSSecurity module from powershell"
+Remove-Module NTFSSecurity
+If ([bool](get-module NTFSSecurity.Init))
+{ Remove-Module NTFSSecurity.Init }
+
+Log "`r`n"
+Log "Share and NTFS access provisioning process completed`r`n"
+write-host "`r`nShare and NTFS access provisioning process completed`r`n" -fore yellow
+
+} #Function close (Add-shareNTFSpermission)
+
+
+###Function to fetch access list from all services
+Function Get-serviceaccess ($server)
+{
+
+$Getserviceaccessoutput = $CSVDump + "\" + $server + "_Service_access_dump.csv"
+
+#Initializing variables
+$servicelistarray = @()
+$Servicelist = $null
+$Servercheckin = $null
+
+Log "Collecting complete Service list with access details from $server and storing it in CSV dump path - '$Getserviceaccessoutput'"
+[array]$Servicelist = Get-WmiObject win32_service -computername $server | select-object Name, Displayname, StartMode, state, pathname, startname
+
+For ($i = 0; $i -le ($Servicelist.length-1); $i++)
+{
+
+#Initializing variables
+$serviceN = $null
+$serviceDN = $null
+$serviceSM = $null
+$serviceS = $null
+$servicePN = $null
+$serviceSN = $null
+$Serviceaccess = $null
+$Serviceaccessstatus = $null
+
+#Storing data pulled from the input file into variables to process in loop
+$serviceN = $Servicelist[$i].name
+$serviceDN = $Servicelist[$i].Displayname
+$serviceSM = $Servicelist[$i].StartMode
+$serviceS = $Servicelist[$i].state
+$servicePN = ($Servicelist[$i].pathname).trim('"')
+$serviceSN = $Servicelist[$i].startname
+
+
+#Changing the text encoding to make it readable. Subinacl utility will produce the output in unicode format
+[Console]::OutputEncoding = [Text.Encoding]::Unicode
+
+$Serviceaccess = c:\Temp\Subinacl.exe /verbose=1 /nostatistic /SERVICE \\$server\$serviceN /DISPLAY
+
+#Changing back the text encoding to default
+[Console]::OutputEncoding = [Text.Encoding]::Default
+
+For ($j = 0; $j -le ($Serviceaccess.length-1); $j++)
+{
+
+#Filtering default system account permissions and splitting account and domain name
+If (($Serviceaccess[$j].startswith("/grant=")) -and (!($Serviceaccess[$j].startswith("/grant=system="))) -and (!($Serviceaccess[$j].startswith("/grant=interactive="))) -and (!($Serviceaccess[$j].startswith("/grant=service="))) -and (!($Serviceaccess[$j].startswith("/grant=local service="))))
+{
+
+$Serviceaccessuserdomain = $null
+$serviceaccessuseracc = $null
+$serviceaccessrights = $null
+
+$Serviceaccessuserdomain1 = ($Serviceaccess[$j].Split("=")[1])
+$Serviceaccessuserdomain = $Serviceaccessuserdomain1.split("\")[0]
+$serviceaccessuseracc = ($Serviceaccess[$j].Split("=")[1]).split("\")[1]
+$serviceaccessrights = $Serviceaccess[$j].Split("=")[2]
+
+$servicelist1 = @()
+$servicelist1 = New-Object PSObject
+
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $server
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServerDomain" -Value $getdomain
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServiceName" -Value $serviceN
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServiceDisplayName" -Value $serviceDN
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "StartMode" -Value $serviceSM
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "Status" -Value $serviceS
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "Logon" -Value $serviceSN
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ExecutablePath" -Value ($servicePN).tostring()
+
+If ($serviceaccessuseracc -ne $null)
+{
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value $Serviceaccessuserdomain
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "MemberName" -Value $serviceaccessuseracc
+}
+else
+{
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value $serviceaccessuseracc
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "MemberName" -Value $Serviceaccessuserdomain
+}
+
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "AccessRights" -Value $serviceaccessrights
+
+$serviceaccessrightsfullform = @()
+
+For ($l = 0; $l -le ($serviceaccessrights.length-1); $l++)
+{
+
+#Defining all permission types
+Switch ($serviceaccessrights[$l])
+{
+F { [string]$serviceaccessrightsfullform += "Full Control;" }
+R { [string]$serviceaccessrightsfullform += "Generic Read;" }
+W { [string]$serviceaccessrightsfullform += "Generic Write;" }
+X { [string]$serviceaccessrightsfullform += "Generic execute;" }
+L { [string]$serviceaccessrightsfullform += "Read control;" }
+Q { [string]$serviceaccessrightsfullform += "Query Service Configuration;" }
+S { [string]$serviceaccessrightsfullform += "Query Service Status;" }
+E { [string]$serviceaccessrightsfullform += "Enumerate Dependent Services;" }
+C { [string]$serviceaccessrightsfullform += "Service Change Configuration;" }
+T { [string]$serviceaccessrightsfullform += "Start Service;" }
+O { [string]$serviceaccessrightsfullform += "Stop Service;" }
+P { [string]$serviceaccessrightsfullform += "Pause/Continue Service;" }
+I { [string]$serviceaccessrightsfullform += "Interrogate Service;" }
+U { [string]$serviceaccessrightsfullform += "Service User-Defined Control Commands;" }
+} #Switch close ($serviceaccessrights[$k])
+
+} #Forloop close ($l = 0; $l -le ($serviceaccessrights.length-1); $l++)
+
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "AccessRightsFullForm" -Value ($serviceaccessrightsfullform).trimend(";")
+
+$servicelistarray += $servicelist1
+
+$Serviceaccessstatus = "pass"
+
+} #If condition close ( ($Serviceaccess[$j].startswith..)
+
+} #Forloop close ($j = 0; $j -le ($Serviceaccess.length-1); $j++)
+
+#This condition is to handle service list which are not accessible because of only system accounts have access
+If ($Serviceaccessstatus -ne "pass")
+{
+$servicelist1 = @()
+$servicelist1 = New-Object PSObject
+
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $server
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServerDomain" -Value $getdomain
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServiceName" -Value $serviceN
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServiceDisplayName" -Value $serviceDN
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "StartMode" -Value $serviceSM
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "Status" -Value $serviceS
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "Logon" -Value $serviceSN
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ExecutablePath" -Value ($servicePN).tostring()
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value "N/A"
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "MemberName" -Value "N/A"
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "AccessRights" -Value "N/A"
+
+$servicelistarray += $servicelist1
+} #If condition close ($Serviceaccessstatus -ne "pass")
+
+} #For loop close ($i = 0; $i -le ($Servicelist.length-1); $i++)
+
+$servicelistarray | Export-csv $Getserviceaccessoutput -notypeinformation
+Log "Exported service access list into $Getserviceaccessoutput"
+
+} #Function close (Get-serviceaccess)
+
+
+###Function to grant access to a service to stop
+Function Grant-ServiceAccess
+{
+
+write-host "`r`n*** Function started to provision service access from the RBAC template ***`r`n" -fore yellow
+Log "`r`n"
+Log "*** Function started to provision service access from the RBAC template ***`r`n"
+
+$serviceaccessperminput = $null
+$Maxarraysize = $null
+
+Log "Collecting service access provisionning list"
+#[array]$serviceaccessperminput =  Import-csv $serviceaccessperminputfile
+[array]$serviceaccessperminput =  $Inputsheetdata | ? { ($_."task name" -match "ServiceAccess") }
+
+If ([bool]$serviceaccessperminput -ne "")
+{
+
+Add-content -Path $serviceaccesspermoutputfile -value ('"' + "ServerName" + '","' + "ServiceName" + '","' + "MemberDomain" + '","' + "MemberName" + '","' + "AccessRights" + '","' + "Status" + '","' + "Comments" + '"')
+
+[int]$K = 0
+$Maxarraysize = $serviceaccessperminput.length
+Log "Collected $($serviceaccessperminput.length) records to provision"
+
+For ($i = 0; $i -le ($serviceaccessperminput.length-1); $i++)
+{
+
+#Initializing variables
+$server = $null
+$servicename  = $null
+$Accountdomain  = $null
+$accountname  = $null
+$getdomain = $null
+$getdomainerror = $null
+$AccessRights = $null
+$Serviceaccessavailability = $null
+$tempserviceaccessdump = $null
+$tempserviceaccesslist = $null
+
+$Adverify = $null
+$Adverifyerror = $null
+
+$servicelistarraypre = @()
+
+#Storing data pulled from the input file into variables to process in loop
+$server = $serviceaccessperminput[$i]."Host Name"
+$servicename = $serviceaccessperminput[$i]."Service Name"
+$Accountdomain = $serviceaccessperminput[$i]."Domain Name"
+$accountname = $serviceaccessperminput[$i]."Resource Group"
+$AccessRights = $serviceaccessperminput[$i]."Service Access"
+
+$k++
+write-host "$k/$Maxarraysize. Provisionning - $server - $Accountdomain\$accountname - $servicename - " -nonewline
+Log "`r`n"
+Log "$k/$Maxarraysize. Provisionning - $server - $Accountdomain\$accountname - $servicename"
+
+Log "Validating server reachability and collecting domain name from $server"
+Try { $getdomain = Get-WmiObject Win32_ComputerSystem -ComputerName $server -ea stop | select -expandproperty domain }
+catch { $getdomainerror = "Yes" }
+
+If ($getdomainerror -ne "Yes")
+{
+
+Log "Server reachable"
+
+#Assigning FQDN based on domain name mentioned in the input file. This will be used to query AD
+$rootFQDN = $null
+
+If ($Accountdomain -like "hbanc")
+{ $rootFQDN = "hbanc.hban.us" }
+
+If ($Accountdomain -like "hbicorp")
+{ $rootFQDN = "hbicorp.huntington.com" }
+
+If ($Accountdomain -like "hbient")
+{ $rootFQDN = "hbient.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "hbiusers")
+{ $rootFQDN = "hbiusers.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "qbanc")
+{ $rootFQDN = "qbanc.hban.us" }
+
+If ($Accountdomain -like "hbicorptest")
+{ $rootFQDN = "hbicorptest.huntington.com" }
+
+If ($Accountdomain -like "hbienttest")
+{ $rootFQDN = "hbienttest.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "hbiuserstest")
+{ $rootFQDN = "hbiuserstest.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "LTPCHE032270917")
+{ $rootFQDN = "LTPCHE032270917" }
+
+If (!(Test-Path -Path ($CSVDump + "\" + $server + "_Service_access_dump.csv")))
+{ Get-serviceaccess $server }
+
+[array]$tempserviceaccessdump = Import-csv ($CSVDump + "\" + $server + "_Service_access_dump.csv")
+
+Log "Validating '$Accountdomain\$accountname' already have access($AccessRights) on '\\$server\$servicename'"
+$tempserviceaccesslist = $tempserviceaccessdump | ? { (($_.servicename -like $servicename) -and ($_.MemberDomain -like $Accountdomain) -and ($_.MemberName -like $accountname) -and ($_.AccessRights -like "*$AccessRights*")) }
+
+If ($tempserviceaccesslist -eq $null)
+{
+
+$Servicearg = $null
+
+Log "Found '$Accountdomain\$accountname' dont have access($AccessRights) on $servicename service"
+Log "Granting service access($AccessRights) for '$Accountdomain\$accountname' on '$servicename' service"
+
+#Storing argument values for granting access
+$Servicearg = " /SERVICE " + '"' + "\\$server\$servicename" + '"' + " /grant=" + $Accountdomain + "\" + $accountname + "=" + $AccessRights
+
+start-process -FilePath c:\temp\subinacl.exe -ArgumentList $Servicearg -wait -passthru | out-null
+
+$Serviceaccesscheckdata = $null
+
+Log "validating granted service access"
+
+#Changing the text encoding to make it readable. Subinacl utility will produce the output in unicode format
+[Console]::OutputEncoding = [Text.Encoding]::Unicode
+
+$Serviceaccesscheckdata = c:\temp\subinacl.exe /verbose=1 /nostatistic /SERVICE \\$server\$servicename /DISPLAY
+
+[Console]::OutputEncoding = [Text.Encoding]::Default
+
+$Serviceaccessavailability = "fail"
+
+For ($j = 0; $j -le ($Serviceaccesscheckdata.length-1); $j++)
+{
+
+$servicechecksubline1 = $null
+
+$servicechecksubline1 = ($Serviceaccesscheckdata[$j].tostring()).trim()
+
+If ($servicechecksubline1 -like "/grant=$Accountdomain\$accountname=$AccessRights")
+{
+Log "Successfully granted service access($AccessRights) for '$Accountdomain\$accountname' on '\\$server\$servicename' service"
+$Serviceaccessstatus = "pass"
+$Serviceaccessavailability = "pass"
+$Serviceaccessfailurereason = ""
+} #If condition close ($servicechecksubline1 -like "*$Accountdomain\$accountname*")
+
+If ($servicechecksubline1 -like "*specified service does not exist*")
+{
+Log "Failed to grant service access($AccessRights) for '$Accountdomain\$accountname' on '\\$server\$servicename' service - '$servicename' service not exist on ($server) server"
+$Serviceaccessavailability = "pass"
+$Serviceaccessstatus = "fail"
+$Serviceaccessfailurereason = "($servicename) - service not exist on ($server) server"
+}
+
+} #Forloop close ($j = 0; $j -le ($Serviceaccesscheckdata.length-1); $j++)
+
+#Verifying resource group availability in AD
+Try { $Adverify = (![Bool](Get-ADgroup $Accountname -server $rootFQDN)) }
+Catch { $Adverifyerror = "Yes" }
+
+If ($Serviceaccessavailability -eq "fail")
+{
+
+If ($rootFQDN -eq $null)
+{
+Log "Failed to grant service access($AccessRights) for '$Accountdomain\$accountname' on '\\$server\$servicename' service - Mentioned domain name '$Accountdomain' for '$Accountname' is incorrect"
+$Serviceaccessfailurereason = "Mentioned domain name ($Accountdomain) for ($Accountname) is incorrect"
+}
+elseIf ($Adverifyerror -eq "Yes")
+{
+Log "Failed to grant service access($AccessRights) for '$Accountdomain\$accountname' on '\\$server\$servicename' service - '$accountname' not exist on domain '$rootFQDN'"
+$Serviceaccessfailurereason = "($Accountname) not exist on domain ($rootFQDN)"
+}
+else
+{
+Log  "Failed to grant service access($AccessRights) for '$Accountdomain\$accountname' on '\\$server\$servicename' service"
+$Serviceaccessfailurereason = "N/A"
+} #If condition close ($rootFQDN -eq $null)
+
+$Serviceaccessstatus = "fail"
+
+} #If condition close ($Serviceaccessavailability -eq "fail")
+
+}
+else
+{
+$Serviceaccessstatus = "pass"
+$Serviceaccessfailurereason = "($accountname) already has access($AccessRights) on ($servicename) service"
+Log "Found '$Accountdomain\$accountname' already has access($AccessRights) on '$servicename' service"
+} #If condition close ($tempserviceaccesslist -eq $null)
+
+write-host "Completed" -fore green
+
+}
+else
+{
+Log "Server not accessible"
+$Serviceaccessstatus = "fail"
+$Serviceaccessfailurereason = "server not accessible"
+write-host "server not accessible" -fore red
+
+} #If condition close ($getdomainerror -ne "Yes")
+
+Add-content -Path $serviceaccesspermoutputfile -value ('"' + $server + '","' + $servicename + '","' + $Accountdomain + '","' + $accountname + '","' + $AccessRights + '","' + $Serviceaccessstatus + '","' + $Serviceaccessfailurereason + '"')
+
+} #Forloop close ($i = 0; $i -le ($serviceaccessperminput.length-1); $i++)
+
+}
+else
+{
+Log "$Inputfile - Input file doesn't has any service access provisionning task. So no action taken"
+Write-host "`r`n$Inputfile - Input file doesn't has any service access provisionning task. So no action taken" -fore red
+} #If condition close ([bool]$serviceaccessperminput -ne $null)
+
+Log "`r`n"
+Log "Service access provisioning process completed`r`n"
+write-host "`r`nService access provisioning process completed`r`n" -fore yellow
+
+} #Function close (Grant-ServiceAccess)
+
+
+
+###Function to get TS access list
+Function Get-TShostconfigaccess ($server)
+{
+
+$GetTSHostconfigaccessoutput = $CSVDump + "\" + $server + "_TSHost_Config_access_dump.csv"
+Log "Collecting TS access list from $server server and storing it in dump folder'$GetTSHostconfigaccessoutput'"
+
+#Initializing variables
+$TSaccessvalarray = @()
+$TSaccesslist = $null
+$Servercheckin = $null
+
+[array]$TSaccesslist = get-WmiObject -Namespace "root/cimv2/terminalservices" -Class Win32_TSAccount -computername $server | ? { (($_.TerminalName -eq "RDP-Tcp") -and ($_.AccountName -ne "")) } | select -expandproperty AccountName
+
+For ([int]$j = 0; $j -le ($TSaccesslist.length-1); $j++)
+{
+
+$TSaccessdomain= $null
+$TSaccessuser = $null
+
+#Splitting domain name and SAM account name to record in CSV file
+$TSaccessdomain = ($TSaccesslist[$j]).split("\")[0]
+$TSaccessuser = ($TSaccesslist[$j]).split("\")[1]
+
+#print common headers like servername,domain name once per server in the CSV report
+$TSaccessval = @()
+$TSaccessval = New-Object PSObject
+
+$TSaccessval | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$TSaccessval | Add-Member -MemberType NoteProperty -Name "ServerDomain" -Value $getdomain
+$TSaccessval | Add-Member -MemberType NoteProperty -Name "TerminalName" -Value "RDP-TCP"
+$TSaccessval | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value $TSaccessdomain
+$TSaccessval | Add-Member -MemberType NoteProperty -Name "MemberName" -Value $TSaccessuser
+
+$TSaccessvalarray += $TSaccessval
+
+} #Forloop close ($j = 0; $j -le ($TSaccesslist.length-1); $j++)
+
+$TSaccessvalarray | Export-csv $GetTSHostconfigaccessoutput -notypeinformation
+Log "Exported TS access list into $GetTSHostconfigaccessoutput"
+
+} #Function close (Get-TShostconfigaccess)
+
+
+
+###Function to add users to users to TS service host configuration
+Function Add-TShostconfig
+{
+
+write-host "`r`n*** Function started to provision TS access from the RBAC template ***`r`n" -fore yellow
+Log "`r`n"
+Log "*** Function started to provision TS access from the RBAC template ***`r`n"
+
+$TSaccessperminput = $null
+$Maxarraysize = $null
+
+Log "Collecting TS access provisionning list"
+#[array]$TSaccessperminput =  Import-csv $TSaccessperminputfile
+[array]$TSaccessperminput =  $Inputsheetdata | ? { ($_."task name" -match "TSAccess") }
+
+If ([bool]$TSaccessperminput -ne "")
+{
+
+Add-content -Path $TSaccesspermoutputfile -value ('"' + "ServerName" + '","' + "MemberDomain" + '","' + "MemberName" + '","' + "Status" + '","' + "Comments" + '"')
+
+[int]$K = 0
+$Maxarraysize = $TSaccessperminput.length
+Log "Collected $($TSaccessperminput.length) records to provision"
+
+For ($i = 0; $i -le ($TSaccessperminput.length-1); $i++)
+{
+
+#Initializing variables
+$server = $null
+$Accountdomain  = $null
+$accountname  = $null
+
+$TSaccesslistpre = $null
+$TSaccesslistpost = $null
+$TSaccessstatus = $null
+$TSaccessfailurereason = $null
+$tempTSaccesslist = $null
+$TSaccesslistdump = $null
+
+$getdomain = $null
+$getdomainerror = $null
+
+$TSpermerror = $null
+
+$Adverify = $null
+$Adverifyerror = $null
+
+#Storing data pulled from the input file into variables to process in loop
+$server = $TSaccessperminput[$i]."Host Name"
+$Accountdomain = $TSaccessperminput[$i]."Domain Name"
+$accountname = $TSaccessperminput[$i]."Resource Group"
+
+$k++
+write-host "$k/$Maxarraysize. Provisionning - $server - $Accountdomain\$accountname - " -nonewline
+Log "`r`n"
+Log "$k/$Maxarraysize. Provisionning - $server - $Accountdomain\$accountname"
+
+Log "Validating server reachability and collecting domain name from $server"
+Try { $getdomain = Get-WmiObject Win32_ComputerSystem -ComputerName $server -ea stop | select -expandproperty domain }
+catch { $getdomainerror = "Yes" }
+
+If ($getdomainerror -ne "Yes")
+{
+
+Log "Server reachable"
+
+#Assigning FQDN based on domain name mentioned in the input file. This will be used to query AD
+$rootFQDN = $null
+
+If ($Accountdomain -like "hbanc")
+{ $rootFQDN = "hbanc.hban.us" }
+
+If ($Accountdomain -like "hbicorp")
+{ $rootFQDN = "hbicorp.huntington.com" }
+
+If ($Accountdomain -like "hbient")
+{ $rootFQDN = "hbient.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "hbiusers")
+{ $rootFQDN = "hbiusers.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "qbanc")
+{ $rootFQDN = "qbanc.hban.us" }
+
+If ($Accountdomain -like "hbicorptest")
+{ $rootFQDN = "hbicorptest.huntington.com" }
+
+If ($Accountdomain -like "hbienttest")
+{ $rootFQDN = "hbienttest.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "hbiuserstest")
+{ $rootFQDN = "hbiuserstest.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "LTPCHE032270917")
+{ $rootFQDN = "LTPCHE032270917" }
+
+#Verify and collect TS access list if not available in dump folder
+If (!(Test-Path -Path ($CSVDump + "\" + $server + "_TSHost_Config_access_dump.csv")))
+{ Get-TShostconfigaccess $server }
+
+[array]$TSaccesslistdump = Import-csv ($CSVDump + "\" + $server + "_TSHost_Config_access_dump.csv")
+
+Log "Validating '$Accountdomain\$accountname' already has TS access on $server"
+$tempTSaccesslist = $TSaccesslistdump | ? { (($_.MemberDomain -like $Accountdomain) -and ($_.MemberName -like $accountname) -and ($_.ServerName -like $server)) }
+
+If ($tempTSaccesslist -eq $null)
+{
+Log "Found '$Accountdomain\$accountname' dont have TS access on $server"
+Log "Granting TS access for '$Accountdomain\$accountname' on '$server' server"
+
+$error.clear()
+
+Try { (get-WmiObject -computername $server -Namespace "root/cimv2/terminalservices" -Class win32_tspermissionssetting | ? { $_.TerminalName -eq "RDP-Tcp" }).AddAccount("$Accountdomain\$accountname",2) | out-null }
+Catch {
+#Log "$error[0].exception"
+$TSpermerror = "Yes"
+}
+
+Log "Validating granted TS access"
+[array]$TSaccesslistpost = get-WmiObject -Namespace "root/cimv2/terminalservices" -Class Win32_TSAccount -computername $server | ? { $_.TerminalName -eq "RDP-Tcp" } | select -expandproperty AccountName
+
+#Verifying resource group availability in AD
+Try { $Adverify = (![Bool](Get-ADgroup $accountname -server $rootFQDN)) }
+Catch { $Adverifyerror = "Yes" }
+
+If (($TSaccesslistpost -contains "$Accountdomain\$accountname") -and ($TSpermerror -ne "Yes"))
+{
+Log "Successfully granted TS access for '$Accountdomain\$accountname' on $server server"
+$TSaccessstatus = "pass"
+}
+#Verify domain availability
+elseIf ($rootFQDN -eq $null)
+{
+Log "Failed to grant TS access for '$Accountdomain\$accountname' on $server server - Mentioned domain name '$Accountdomain' for '$Accountname' is incorrect"
+$TSaccessstatus = "fail"
+$TSaccessfailurereason = "Mentioned domain name ($Accountdomain) for ($Accountname) is incorrect"
+}
+#Verifying resource group exist in AD
+elseIf ($Adverifyerror -eq "Yes")
+{
+Log "Failed to grant TS access for '$Accountdomain\$accountname' - '$accountname' not exist on domain '$rootFQDN'"
+$TSaccessstatus = "fail"
+$TSaccessfailurereason = "($accountname) not exist on domain ($rootFQDN)"
+}
+else
+{
+Log "Failed to grant TS access for '$Accountdomain\$accountname' on $server server"
+$TSaccessstatus = "fail"
+$TSaccessfailurereason = "N/A"
+} #If condition close (($TSaccesslistpost -contains "$Accountdomain\$accountname") -and ($TSpermerror -ne "Yes"))
+
+}
+else
+{
+Log "'$Accountdomain\$accountname' already has TS access on $server server"
+$TSaccessstatus = "pass"
+$TSaccessfailurereason = "($Accountdomain\$accountname) already has TS access on $server server"
+} #If condition close ($TSaccesslistpre -notcontains "$Accountdomain\$accountname")
+
+write-host "Completed" -fore green
+
+}
+else
+{
+Log "server not accessible"
+$TSaccessstatus = "fail"
+$TSaccessfailurereason = "server not accessible"
+write-host "server not accessible" -fore red
+} #If condition close ($getdomainerror -ne "Yes")
+
+Add-content -Path $TSaccesspermoutputfile -value ('"' + $server + '","' + $Accountdomain + '","' + $accountname + '","' + $TSaccessstatus + '","' + $TSaccessfailurereason + '"')
+
+} #Forloop close ($i = 0; $i -le ($TSaccessperminput.length-1); $i++)
+
+}
+else
+{
+Log "$Inputfile - Input file doesn't has any TS access provisionning task. So no action taken"
+Write-host "`r`n$Inputfile - Input file doesn't has any TS access provisionning task. So no action taken" -fore red
+} #If condition close ([bool]$TSaccessperminput -ne $null)
+
+Log "`r`n"
+Log "TS access provisioning process completed`r`n"
+write-host "`r`nTS access provisioning process completed`r`n" -fore yellow
+
+} #Function close (Add-TShostconfig)
+
+
+
+###Function to get shutdown access list
+Function Get-shutdownaccess ($server)
+{
+
+$Getshutdownaccessoutput = $CSVDump + "\" + $server + "_Shutdown_access_dump.csv"
+Log "Collecting shutdown access list from $server and storing it in dump folder($Getshutdownaccessoutput)"
+
+#Initializing variables
+$Getshutdownaccessarray = @()
+$Getshutdownaccessdata = $null
+$Servercheckin = $null
+
+[array]$Getshutdownaccessdata = Get-AccountsWithUserRight -Computer $server -Right "SeShutdownPrivilege" | select -expandproperty Account
+
+For ($i = 0; $i -le ($Getshutdownaccessdata.length-1); $i++)
+{
+
+$Shutdownaccessdomain = $null
+$Shutdownaccessuser= $null
+
+#Splitting domain name and SAM account name to record in CSV file
+$Shutdownaccessdomain = $Getshutdownaccessdata[$i].split("\")[0]
+$Shutdownaccessuser = $Getshutdownaccessdata[$i].split("\")[1]
+
+#print common headers like servername,domain name once per server in the CSV report
+$Getshutdownaccesslist = @()
+$Getshutdownaccesslist = New-Object PSObject
+
+$Getshutdownaccesslist | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$Getshutdownaccesslist | Add-Member -MemberType NoteProperty -Name "AccessRights" -Value "SeShutdownPrivilege"
+$Getshutdownaccesslist | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value $Shutdownaccessdomain
+$Getshutdownaccesslist | Add-Member -MemberType NoteProperty -Name "MemberName" -Value $Shutdownaccessuser
+
+$Getshutdownaccessarray += $Getshutdownaccesslist
+
+} #Forloop close ($i = 0; $i -le ($Getshutdownaccessdata.length-1); $i++)
+
+$Getshutdownaccessarray | Export-csv $Getshutdownaccessoutput -notypeinformation
+Log "Exported shutdown access list into $Getshutdownaccessoutput"
+
+} #Function close (Get-shutdownaccess)
+
+
+###Function to grant machine shutdown privilege
+Function Grant-shutdownaccess
+{
+
+write-host "`r`n*** Function started to provision Shutdown access from the RBAC template ***`r`n" -fore yellow
+Log "`r`n"
+Log "*** Function started to provision Shutdown access from the RBAC template ***`r`n"
+
+$Shutdownaccessperminput = $null
+$Maxarraysize = $null
+
+Log "Collecting Shutdown access provisionning list"
+#[array]$Shutdownaccessperminput =  Import-csv $Shutdownaccessperminputfile
+[array]$Shutdownaccessperminput =  $Inputsheetdata | ? { ($_."task name" -match "ShutdownAccess") }
+
+If ([bool]$Shutdownaccessperminput -ne "")
+{
+
+Add-content -Path $Shutdownaccesspermoutputfile -value ('"' + "ServerName" + '","' + "MemberDomain" + '","' + "MemberName" + '","' + "Status" + '","' + "Comments" + '"')
+
+[int]$K = 0
+$Maxarraysize = $Shutdownaccessperminput.length
+Log "Collected $($Shutdownaccessperminput.length) records to provision"
+
+For ($i = 0; $i -le ($Shutdownaccessperminput.length-1); $i++)
+{
+
+#Initializing variables
+$server = $null
+$Accountdomain  = $null
+$accountname  = $null
+$Domaccname = $null
+
+$Grantaccesserror = $null
+$Grantedaccesspre = $null
+$Grantedaccesspost = $null
+$Grantedaccessdump = $null
+
+
+$getdomain = $null
+$getdomainerror = $null
+
+$Adverify = $null
+$Adverifyerror = $null
+
+$shutdownaccessstatus = $null
+$shutdownaccessfailurereason = $null
+
+#Storing data pulled from the input file into variables to process in loop
+$server = $Shutdownaccessperminput[$i]."Host Name"
+$Accountdomain = $Shutdownaccessperminput[$i]."Domain Name"
+$accountname = $Shutdownaccessperminput[$i]."Resource Group"
+$Domaccname = "$Accountdomain\$accountname"
+
+$k++
+write-host "$k/$Maxarraysize. Provisionning  - $server - $Accountdomain\$accountname - " -nonewline
+Log "`r`n"
+Log "$k/$Maxarraysize. Provisionning  - $server - $Accountdomain\$accountname"
+
+Log "Validating server reachability and collecting domain name from $server"
+Try { $getdomain = Get-WmiObject Win32_ComputerSystem -ComputerName $server -ea stop | select -expandproperty domain }
+catch { $getdomainerror = "Yes" }
+
+If ($getdomainerror -ne "Yes")
+{
+
+Log "Server reachable"
+
+#Assigning FQDN based on domain name mentioned in the input file. This will be used to query AD
+$rootFQDN = $null
+
+If ($Accountdomain -like "hbanc")
+{ $rootFQDN = "hbanc.hban.us" }
+
+If ($Accountdomain -like "hbicorp")
+{ $rootFQDN = "hbicorp.huntington.com" }
+
+If ($Accountdomain -like "hbient")
+{ $rootFQDN = "hbient.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "hbiusers")
+{ $rootFQDN = "hbiusers.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "qbanc")
+{ $rootFQDN = "qbanc.hban.us" }
+
+If ($Accountdomain -like "hbicorptest")
+{ $rootFQDN = "hbicorptest.huntington.com" }
+
+If ($Accountdomain -like "hbienttest")
+{ $rootFQDN = "hbienttest.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "hbiuserstest")
+{ $rootFQDN = "hbiuserstest.hbicorp.huntington.com" }
+
+If ($Accountdomain -like "LTPCHE032270917")
+{ $rootFQDN = "LTPCHE032270917" }
+
+If (!(Test-Path -Path ($CSVDump + "\" + $server + "_Shutdown_access_dump.csv")))
+{ Get-shutdownaccess $server }
+
+#Example:-
+#Grant-UserRight -Account "Edward","Karen" -Right SeServiceLogonRight,SeCreateTokenPrivilege -Computer TESTPC
+
+[array]$Grantedaccessdump = Import-csv ($CSVDump + "\" + $server + "_Shutdown_access_dump.csv")
+
+Log "Validating '$Accountdomain\$accountname' already has shutdown access on $server"
+[array]$Grantedaccesspre = $Grantedaccessdump | ? { (($_.MemberDomain -like $Accountdomain) -and ($_.MemberName -like $accountname) -and ($_.ServerName -like $server)) }
+
+If ($Grantedaccesspre -eq $null)
+{
+
+Log "Found '$Accountdomain\$accountname' dont have shutdown access on $server"
+Log "Granting shutdown access for '$Accountdomain\$accountname' on '$server' server"
+
+$error.clear()
+
+Try { Grant-UserRight -Computer $server -Account $Domaccname -Right "SeShutdownPrivilege" | out-null }
+Catch {
+#Log "$error[0].exception"
+$Grantaccesserror = "Yes"
+}
+
+[array]$Grantedaccesspost = Get-AccountsWithUserRight -Computer $server -Right "SeShutdownPrivilege" | select Account, right
+
+#Verifying resource group availability in AD
+Try { $Adverify = (![Bool](Get-ADgroup $Accountname -server $rootFQDN)) }
+Catch { $Adverifyerror = "Yes" }
+
+Log "Validating granted shutdown access"
+If (($Grantedaccesspost.account -contains $Domaccname) -and ($Grantaccesserror -ne "Yes"))
+{
+Log "Successfully granted Shutdown access for '$Accountdomain\$accountname' on '$server' server"
+$shutdownaccessstatus = "pass"
+}
+elseIf ($rootFQDN -eq $null)
+{
+Log "Failed to grant Shutdown access for '$Accountdomain\$accountname' on $servr server - Mentioned domain name '$Accountdomain' for '$Accountname' is incorrect"
+$shutdownaccessstatus = "fail"
+$shutdownaccessfailurereason = "Mentioned domain name ($Accountdomain) for ($Accountname) is incorrect"
+}
+#Verifying resource group exist in AD
+elseIf ($Adverifyerror -eq "Yes")
+{
+Log "Failed to grant Shutdown access for '$Accountdomain\$accountname' on '$server' server - '$accountname' not exist on domain '$rootFQDN'"
+$shutdownaccessstatus = "fail"
+$shutdownaccessfailurereason = "($accountname) not exist on domain ($rootFQDN)"
+}
+else
+{
+Log "Failed to grant Shutdown access for '$Accountdomain\$accountname' on '$server' server"
+$shutdownaccessstatus = "fail"
+$shutdownaccessfailurereason = "N/A"
+} #If condition close (($Grantedaccesspost.account -contains $Domaccname) -and ($Grantaccesserror -ne "Yes"))
+
+}
+else
+{
+Log "'$accountname' already has shutdown access on $server server"
+$shutdownaccessstatus = "pass"
+$shutdownaccessfailurereason = "($accountname) already has shutdown access on $server server"
+} #If condition close ($Grantedaccesspre.account -notcontains $Domaccname)
+
+write-host "Completed" -fore green
+
+}
+else
+{
+Log "Server not accessible"
+$shutdownaccessstatus = "fail"
+$shutdownaccessfailurereason = "Server not accessible"
+write-host "Server not accessible" -fore red
+} #If condition close ($getdomainerror -ne "Yes")
+
+Add-content -Path $Shutdownaccesspermoutputfile -value ('"' + $server + '","' + $Accountdomain + '","' + $accountname + '","' + $shutdownaccessstatus + '","' + $shutdownaccessfailurereason + '"')
+
+} #Forloop close ($i = 0; $i -le ($Shutdownaccessperminput.length-1); $i++)
+
+}
+else
+{
+Log "$Inputfile - Input file doesn't has any shutdown access provisionning task. So no action taken"
+Write-host "`r`n$Inputfile - Input file doesn't has any shutdown access provisionning task. So no action taken" -fore red
+} #If condition close ([bool]$Shutdownaccessperminput -ne $null)
+
+Log "Removing UserRights module from powershell"
+Remove-module UserRights
+
+Log "`r`n"
+Log "Shutdown access provisioning process completed`r`n"
+write-host "`r`nShutdown access provisioning process completed`r`n" -fore yellow
+
+} #Function close (Grant-shutdownaccess)
+
+
+
+
+#####Trigger Functions#####
+
+Add-Groupmembers
+
+Add-shareNTFSpermission
+
+Grant-ServiceAccess
+
+Add-TShostconfig
+
+Grant-shutdownaccess
+
+Consolidate-CSVfiles
+
+Remove-prerequisites
+
+###########################
+
+
+
+write-host "`r`n*** Access Provision Script Completed ***`r`n" -fore cyan
+Log "`r`n"
+Log "*** Access Provision Script Completed ***`r`n"
+
+
+#End of script..

@@ -1,0 +1,2150 @@
+ ############################################################################################################################################################################
+## Name		 : Access Data Extract Utility                                                                                                                              ##
+## Version 	 : 2.0																			    ##
+## Creation date : 14 Nov 2016																                    ##
+## Modified date : 20 Jan 2017																		    ##
+## Authur 	 : Arun Srinivasan																	    ##
+## Purpose 	 : Generate complete service details, local group members, share folders & NTFS permission, TS access list & Shutdown previllege from given list of servers ##
+## Applies to 	 : Windows 7/8/10/2008/2012																    ##
+ ############################################################################################################################################################################
+
+
+[CmdletBinding()]
+
+param(
+[parameter(Mandatory=$false)]
+[string]$Inputfile,
+[parameter(Mandatory=$false)]
+[string]$Outputfile
+)
+
+
+
+###Getting script path
+$Scriptpath = Split-Path -Parent $MyInvocation.MyCommand.Definition
+#$Scriptpath = "C:\Arun\Imp\Script Repository\HNB scripts\Data_pull_script"
+
+
+
+###Getting script name
+$scriptname1 = $MyInvocation.MyCommand.Name
+$scriptname = $scriptname1.split(".")[-2]
+
+
+
+###Initializing variables
+$Inputfilename = $null
+$outputfoldername = $null
+$Inputfiledirectory = $null
+$outputdir = $null
+$Logfolder = $null
+$Log = $null
+$CSVDump = $null
+$Prereqstatus = $null
+$Tempdirstatus = $null
+$serverlist = $null
+
+
+
+###Getting input file
+Function Get-FilePath
+{
+[CmdletBinding()]
+Param(
+[String]$Filter = "|*.*",
+[String]$InitialDirectory = "$env:UserProfile\Desktop")
+
+[void][System.Reflection.Assembly]::LoadWithPartialName("System.windows.forms")
+$OpenFileDialog = New-Object System.Windows.Forms.OpenFileDialog
+$OpenFileDialog.initialDirectory = $InitialDirectory
+$OpenFileDialog.filter = $Filter
+[void]$OpenFileDialog.ShowDialog()
+$OpenFileDialog.filename
+}
+
+Function Input-form
+{
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+$form = New-Object “System.Windows.Forms.Form”
+$form.Width = 500
+$form.Height = 180
+$form.Text = "Choose Input file and output file path for $scriptname"
+$form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+$Font = New-Object System.Drawing.Font("Book Antiqua",8,[System.Drawing.FontStyle]::Regular)
+$Form.Font = $Font
+$Form.TopMost = $True
+$Form.ForeColor = "White"
+#$Form.ForeColor = "Black"
+$Form.MinimizeBox = $True
+$Form.MaximizeBox = $False
+$Form.controlbox = $False
+#$Form.UseVisualStyleBackColor = $True
+$Form.BackColor = "DarkSlateBlue"
+$Bmp = New-Object System.Drawing.Bitmap(16,16)
+$icon = [System.Drawing.Graphics]::FromImage($Bmp)
+$icon.drawline([System.Drawing.Pens]::Red,1,15,6,1)
+$icon.drawline([System.Drawing.Pens]::Red,1,15,7,1)
+$icon.drawline([System.Drawing.Pens]::Red,1,15,8,1)
+$icon.drawline([System.Drawing.Pens]::Red,11,15,6,1)
+$icon.drawline([System.Drawing.Pens]::Red,11,15,6,12)
+$icon.drawline([System.Drawing.Pens]::Red,11,15,6,16)
+$icon.drawline([System.Drawing.Pens]::Red,11,15,11,16)
+$ico = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+$Form.Icon = $ico
+
+$OKButton = New-Object System.Windows.Forms.Button
+$OKButton.Left = 150
+$OKButton.Top = 110
+$OKButton.Text = "OK"
+$OKButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
+$form.AcceptButton = $OKButton
+$form.Controls.Add($OKButton)
+
+$CancelButton = New-Object System.Windows.Forms.Button
+$CancelButton.Left = 250
+$CancelButton.Top = 110
+$CancelButton.Text = "Cancel"
+$CancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+$form.CancelButton = $CancelButton
+$form.Controls.Add($CancelButton)
+
+$Label1 = New-Object “System.Windows.Forms.Label”
+$Label1.Left = 20
+$Label1.Top = 30
+$Label1.Text = "Input File"
+$Label1.width = 100
+$form.Controls.Add($Label1)
+
+$textBox1 = New-Object “System.Windows.Forms.TextBox”
+$textBox1.Left = 125
+$textBox1.Top = 30
+$textBox1.width = 230
+$textBox1.Text = ""
+$form.Controls.Add($textBox1)
+
+$Button1 = New-Object System.Windows.Forms.Button
+$Button1.Left = 390
+$Button1.Top = 30
+$Button1.Width = 80
+$Button1.Text = "Browse"
+$Button1.Add_Click({$textBox1.Text = Get-FilePath -InitialDirectory "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}"})
+$form.Controls.Add($Button1)
+
+$Label2 = New-Object “System.Windows.Forms.Label”
+$Label2.Left = 20
+$Label2.Top = 60
+$Label2.Text = "Output File "
+$Label2.width = 100
+$form.Controls.Add($Label2)
+
+$textBox2 = New-Object “System.Windows.Forms.TextBox”
+$textBox2.Left = 125
+$textBox2.Top = 60
+$textBox2.width = 230
+$textBox2.Text = ""
+$form.Controls.Add($textBox2)
+
+Function Browsebutton
+{
+$Folderpath = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{RootFolder = 'Mycomputer';ShowNewFolderButton = $True;}
+$Folderpath.ShowDialog() | out-null
+$Browsebuttonpath = $Folderpath.SelectedPath
+Return $Browsebuttonpath
+}
+
+$Button2 = New-Object System.Windows.Forms.Button
+$Button2.Left = 390
+$Button2.Top = 60
+$Button2.Width = 80
+$Button2.Text = "Browse"
+$Button2.Add_Click({$textBox2.Text = Browsebutton})
+$form.Controls.Add($Button2)
+
+$form.Topmost = $True
+
+$form.Add_Shown({$textBox1.Select()})
+$script:result = $form.ShowDialog()
+
+If ($result -eq [System.Windows.Forms.DialogResult]::OK)
+{
+$script:Inputfile = $textBox1.Text
+$script:Outputfile = $textBox2.Text
+}
+else
+{ Break }
+
+} #Funtion close (Input-form)
+
+
+If ((!($Inputfile)) -or (!($Outputfile)))
+{
+Input-form
+
+If (($Inputfile -eq "") -or ($Outputfile -eq ""))
+{
+Write-host "`r`nData Extract script terminated. Input and output file location should not be blank`r`n" -fore red
+Break
+}
+
+} #If condition close (($Inputfile -ne "") -and ($Outputfile -ne ""))
+
+
+
+###Creating output Directories
+$Date = get-date -format 'd"_"MMM"_"yyyy"-"H"_"mm"_"ss'
+
+$Inputfilename = $Inputfile.Split("\")
+
+$outputfoldername = $scriptname + "-" + ($Inputfilename[$Inputfilename.length-1]).split(".")[0] + "-Output-"
+
+$Inputfiledirectory = $Inputfile | Split-Path
+
+#$outputdir = $Inputfiledirectory + "\" + $outputfoldername + $Date
+$outputdir = $Outputfile.trimend("\") + "\" + $outputfoldername + $Date
+
+If (!(Test-Path -Path $outputdir))
+{ New-Item -ItemType directory -Path $outputdir | out-null }
+
+
+
+###Creating Log file and directory
+$script:Logfolder = $outputdir + "\Logs"
+$script:Log = $Logfolder + "\Log_$Date.txt"
+
+#Creating log directory if not exist to store script execution log files
+If (!(Test-Path -Path $Logfolder))
+{ New-Item -ItemType directory -Path $Logfolder | out-null }
+
+#Function to record log
+Function Log ($message)
+{
+$currenttime = get-date -format 'd"_"MMM"_"yyyy"-"H"_"mm"_"ss'
+
+If ($message -eq "`r`n")
+{ Add-content -Path $Log -value ("`n") }
+else
+{ Add-content -Path $Log -value ("$currenttime : $message") }
+
+} #Function close (Log)
+
+Log "`r`n"
+Log "*** Data Extract Script Started ***`r`n"
+write-host "`r`n*** Data Extract Script Started ***`r`n" -fore cyan
+
+
+
+###CSV dump folder to store detailed output files
+$script:CSVDump = $outputdir + "\CSV_Dump"
+
+If (!(Test-Path -Path $CSVDump))
+{
+Log "Creating dump folder($CSVDump) to store CSV output files"
+New-Item -ItemType directory -Path $CSVDump | out-null
+}
+
+$script:CSVReportservice = $CSVDump + "\Service_Access_Report.csv"
+$script:CSVReportservicedump = $CSVDump + "\Service_Access_Filtered_dump.csv"
+$script:CSVReportservicecompletedump = $CSVDump + "\Service_Access_Complete_dump.csv"
+$script:CSVReportgroup = $CSVDump + "\Local_Group_Members_Report.csv"
+$script:CSVReportgroupdump = $CSVDump + "\Local_Group_Members_dump.csv"
+$script:CSVReportshare = $CSVDump + "\Share_NTFS_Access_Report.csv"
+$script:CSVReportsharedump = $CSVDump + "\Share_NTFS_Access_dump.csv"
+$script:CSVReportTSaccess = $CSVDump + "\TS_Access_Report.csv"
+$script:CSVReportTSaccessdump = $CSVDump + "\TS_Access_dump.csv"
+$script:CSVReportShutdownaccess = $CSVDump + "\Shutdown_Access_Report.csv"
+$script:CSVReportShutdownaccessdump = $CSVDump + "\Shutdown_Access_dump.csv"
+$script:WindowsEntitlements = $CSVDump + "\Windows_Entitlements.csv"
+$script:ConsolidatedDataExtractReport = $outputdir + "\Consolidated_Data_Extract_Report_$Date.xlsx"
+
+$script:TempDir = "C:\Temp"
+$script:Rmtsharepath = "c:\Temp\Rmtshare.exe"
+$script:Subinaclpath = "c:\Temp\Subinacl.exe"
+$script:UserRightspath = "c:\Temp\UserRights.ps1"
+$script:NTFSsecpath = "c:\Temp\NTFSSecurity\4.0.0\NTFSSecurity.psm1"
+
+
+
+###Reading input file and storing server names into variable
+Log "*** Reading input file (Server List) ***"
+Log "Input file path - $Inputfile"
+[array]$script:serverlist = get-content $Inputfile
+
+#Condition to check whether input file is empty
+If ($serverlist -eq $null)
+{
+Log "`r`n"
+Log "Terminating this script as the input file is empty`r`n"
+Write-host "Terminating this script as the input file is empty`r`n" -fore red
+Break
+}
+else
+{
+Log "Collected $($serverlist.length) server(s) from the input file"
+} #If condition close ($serverlist -ne $null)
+
+
+
+
+###Validate and copy the pre-requisites to temp directory from script located folder
+Log "`r`n"
+Log "*** Validating pre-requisites process started ***`r`n"
+write-host "*** Validating pre-requisites process started ***`r`n" -fore yellow
+Log "Pre-requisites required to execute the process and checking all required executables & modules are available in the place from where the script is executed"
+
+If (!(Test-path -path $TempDir))
+{
+$script:Tempdirstatus = $true
+New-Item -ItemType directory -Path $TempDir| out-null
+}
+
+If (Test-path -path $Rmtsharepath)
+{
+Log "RMTShare.exe - Pass"
+write-host "RMTShare.exe - Pass" -fore green
+}
+else
+{
+Copy-Item -path "$Scriptpath\Pre-requisites\RMTShare.exe" -destination $TempDir -force -ea silentlycontinue
+
+If (Test-path -path $Rmtsharepath)
+{
+Log "RMTShare.exe - Pass | Copied"
+write-host "RMTShare.exe - Pass" -fore green
+}
+else
+{
+Log "RMTShare.exe - Fail"
+write-host "RMTShare.exe - Fail" -fore red
+$Prereqstatus = "Fail"
+}  #If condition close (Test-path -path $Rmtsharepath)
+
+} #If condition close (Test-path -path $Rmtsharepath)
+
+If (Test-path -path $Subinaclpath)
+{
+Log "Subinacl.exe - Pass"
+write-host "Subinacl.exe - Pass" -fore green
+}
+else
+{
+Copy-Item -path "$Scriptpath\Pre-requisites\Subinacl.exe" -destination $TempDir -force -ea silentlycontinue
+
+If (Test-path -path $Subinaclpath)
+{
+Log "Subinacl.exe - Pass | Copied"
+write-host "Subinacl.exe - Pass" -fore green
+}
+else
+{
+Log "Subinacl.exe - Fail"
+write-host "Subinacl.exe - Fail" -fore red
+$Prereqstatus = "Fail"
+
+} #If condition close (Test-path -path $Subinaclpath)
+
+} #If condition close (Test-path -path $Subinaclpath)
+
+If (Test-path -path $UserRightspath)
+{
+Import-module $UserRightspath | out-null
+
+If (Get-module UserRights)
+{
+Log "UserRights Module - Pass"
+write-host "UserRights Module - Pass" -fore green
+}
+else
+{
+Log "UserRights Module - Fail"
+write-host "UserRights Module - Fail" -fore red
+$Prereqstatus = "Fail"
+} #If condition close (Get-module UserRights)
+
+}
+else
+{
+Copy-Item -path "$Scriptpath\Pre-requisites\UserRights.ps1" -destination $TempDir -force -ea silentlycontinue
+#Import-module $UserRightspath | out-null
+Import-module "c:\temp\userrights.ps1" | out-null
+
+If (Get-module UserRights)
+{
+Log "UserRights Module - Pass | Copied"
+write-host "UserRights Module - Pass" -fore green
+}
+else
+{
+Log "UserRights Module - Fail"
+write-host "UserRights Module - Fail" -fore red
+$Prereqstatus = "Fail"
+} #If condition close (Get-module UserRights)
+
+} #If condition close (Test-path -path $UserRightspath)
+
+If (Test-path -path $NTFSsecpath)
+{
+Import-Module $NTFSsecpath | out-null
+
+If (Get-module NTFSSecurity)
+{
+Log "NTFSSecurity Module - Pass"
+write-host "NTFSSecurity Module - Pass" -fore green
+}
+else
+{
+Log "NTFSSecurity Module - Fail"
+write-host "NTFSSecurity Module - Fail" -fore red
+$Prereqstatus = "Fail"
+} #If condition close (Get-module NTFSSecurity)
+
+}
+else
+{
+Copy-Item -path "$Scriptpath\Pre-requisites\NTFSSecurity" -destination $TempDir -force -recurse -ea silentlycontinue
+Import-Module $NTFSsecpath | out-null
+
+If (Get-module NTFSSecurity)
+{
+Log "NTFSSecurity Module - Pass | Copied"
+write-host "NTFSSecurity Module - Pass" -fore green
+}
+else
+{
+Log "NTFSSecurity Module - Fail"
+write-host "NTFSSecurity Module - Fail" -fore red
+$Prereqstatus = "Fail"
+} #If condition close (Get-module NTFSSecurity)
+
+} #If condition close (Test-path -path $NTFSsecpath)
+
+Import-module Activedirectory | out-null
+If (Get-module Activedirectory)
+{
+Log "Active Directory Module - Pass"
+write-host "Active Directory Module - Pass" -fore green
+}
+else
+{
+Log "Active Directory Module not found. Initiating install"
+Import-Module ServerManager | out-null
+Add-WindowsFeature RSAT-AD-PowerShell | out-null
+Import-Module ActiveDirectory | out-null
+
+#Verifying active directory module installation status
+If (Get-module Activedirectory)
+{
+Log "Active Directory Module - Pass | Installed"
+write-host "Active Directory Module - Pass" -fore green
+}
+else
+{
+Log "Active Directory Module - Fail"
+write-host "Active Directory Module - Fail" -fore red
+Log "Failed to install active directory module. Check it and try installing RSAT-AD-PowerShell windows feature manually before re-running this script"
+$Prereqstatus = "Fail"
+} #If condition close (Get-module Activedirectory)
+
+} #If condition close (Get-module Activedirectory)
+
+Log "`r`n"
+Log "Validating pre-requisites process completed`r`n"
+write-host "`r`nValidating pre-requisites process completed`r`n" -fore yellow
+
+
+
+
+###Function to remove all pre-requisites which are copied to temp directory for script execution
+Function Remove-prerequisites
+{
+
+Log "`r`n"
+Log "*** Pre-requisites removal process started ***`r`n"
+write-host "`r`n*** Pre-requisites removal process started ***`r`n" -fore yellow
+
+If ($Tempdirstatus -eq $true)
+{
+Log "Removing $tempdir created by the script"
+write-host "Removing $tempdir created by the script"
+Remove-item -path $TempDir -recurse -force -ea silentlycontinue
+
+If (!(Test-path -path $TempDir -ea silentlycontinue))
+{
+write-host "`r`n$tempdir - Successfully removed" -fore green
+Log "$tempdir - Successfully removed"
+}
+else
+{
+write-host "`r`nFailed to remove $tempdir. Check if any file(s) are in use and remove $tempdir directory manually" -fore red
+Log "Failed to remove $tempdir. Check if any file(s) are in use and remove $tempdir directory manually"
+}
+
+}
+else
+{
+Remove-item -path "$TempDir\RMTShare.exe" -ea silentlycontinue
+Remove-item -path "$TempDir\Subinacl.exe" -ea silentlycontinue
+Remove-item -path "$TempDir\UserRights.ps1" -ea silentlycontinue
+Remove-item -path "$TempDir\NTFSSecurity" -recurse -force -ea silentlycontinue
+
+If (!(Test-path -path "$TempDir\RMTShare.exe"))
+{
+write-host "RMTShare.exe - Removed" -fore green
+Log "Successfully removed $TempDir\RMTShare.exe"
+}
+else
+{
+write-host "RMTShare.exe - Fail" -fore red
+Log "Failed to remove $TempDir\RMTShare.exe. Check if this file is in use or close PS console and remove this file manually"
+}
+
+If (!(Test-path -path "$TempDir\Subinacl.exe"))
+{
+write-host "Subinacl.exe - Removed" -fore green
+Log "Successfully removed $TempDir\Subinacl.exe"
+}
+else
+{
+write-host "Subinacl.exe - Fail" -fore red
+Log "Failed to remove $TempDir\Subinacl.exe. Check if this file is in use or close PS console and remove this file manually"
+}
+
+If (!(Test-path -path "$TempDir\UserRights.ps1"))
+{
+write-host "UserRights.ps1 - Removed" -fore green
+Log "Successfully removed $TempDir\UserRights.ps1"
+}
+else
+{
+write-host "UserRights.ps1 - Fail" -fore red
+Log "Failed to remove $TempDir\UserRights.ps1. Check if this file is in use or close PS console and remove this file manually"
+}
+
+If (!(Test-path -path "$TempDir\NTFSSecurity"))
+{
+write-host "NTFSSecurity Module - Removed" -fore green
+Log "Successfully removed $TempDir\NTFSSecurity"
+}
+else
+{
+write-host "NTFSSecurity Module - Fail" -fore red
+Log "Failed to remove $TempDir\NTFSSecurity. Remove NTFSSecurity module from PS console using cmdlet 'Remove-module NTFSsecurity' and then delete NTFSSecurity folder manually"
+}
+
+} #If condition close ($Tempdirstatus -eq $true)
+
+Log "`r`n"
+Log "Pre-requisites removal process completed`r`n"
+write-host "`r`nPre-requisites removal process completed`r`n" -fore yellow
+
+} #Function close (Remove-prerequisites)
+
+
+
+
+###Condition to check whether all pre-requisites are in place
+If ($Prereqstatus -eq "Fail")
+{
+Log "`r`n"
+Log "Terminating this script. One or more required executables or PS modules not available on script executed machine. Refer $log to get more details`r`n"
+Write-host "Terminating this script. One or more required executables or PS modules not available on script executed machine. Refer $log to get more details`r`n" -fore red
+Break
+} #If condition close ($Prereqstatus -ne "Fail)
+
+
+###Function to create a consolidated XL report from all CSV reports
+Function Consolidate-CSVfiles
+{
+
+write-host "`r`n*** Function started to collect all CSV output files and consolidate ***`r`n" -fore yellow
+Log "`r`n"
+Log "*** Function started to collect all CSV output files and consolidate ***`r`n"
+
+$csvs = $null
+$csvs1 = @()
+
+Log "Collecting CSV files from $CSVDump and preparing windows_Entitlements sheet"
+[array]$csvs = Get-ChildItem $CSVDump | ? { (($_.name -like "*.csv") -and ($_.name -notlike "*_dump.csv")) } | sort name
+Log "Collected $($csvs.length) CSV files"
+
+Add-content -Path $WindowsEntitlements -value ('"' + "Task Name" + '","' + "Host Name" + '","' + "Domain Name" + '","' + "Resource Group" + '","' + "Local Group Membership" + '","' + "Share Name" + '","' + "Share Path" + '","' + "Share Access" + '","' + "NTFS Access" + '","' + "Service Name" + '","' + "Service Access" + '","' + "Service Access Fullform" + '"')
+
+Foreach ($CSV in $CSVS)
+{
+
+Log "Processing - $CSV"
+
+$CSVname = ($CSV | split-path -leaf).Split(".")[0]
+
+Log "Importing data from $CSV"
+$CSVdata = Import-csv $CSV.fullname
+
+If ($CSVname -like "Local_Group_Members_Report")
+{
+
+Log "Collected $($CSVdata.length) records from $CSVname"
+
+For ($i = 0; $i -le ($CSVdata.length-1); $i++)
+{
+$Taskname = $null
+$HostName = $null
+$DomainName = $null
+$ResourceGroup = $null
+$LocalGroupMembership = $null
+
+$Taskname = "localgroupaccess"
+$HostName = ($CSVdata[$i].ServerName).ToLower()
+$DomainName = ($CSVdata[$i].MemberDomain).ToLower()
+$ResourceGroup = ($CSVdata[$i].MemberName).ToLower()
+$LocalGroupMembership = ($CSVdata[$i].LocalGroupName).ToLower()
+
+Add-content -Path $WindowsEntitlements -value ('"' + $Taskname + '","' + $HostName + '","' + $DomainName + '","' + $ResourceGroup + '","' + $LocalGroupMembership + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '"')
+} #Forloop close ($i = 0; $i -le ($CSVdata.length-1); $i++)
+
+Log "Updated $CSV data on windows entitlement sheet"
+
+} #If condition close ($CSVname -like "Local_Group_Members_Report")
+
+
+If ($CSVname -like "Service_Access_Report")
+{
+
+Log "Collected $($CSVdata.length) records from $CSVname"
+
+For ($i = 0; $i -le ($CSVdata.length-1); $i++)
+{
+$Taskname = $null
+$HostName = $null
+$DomainName = $null
+$ResourceGroup = $null
+$ServiceName = $null
+$ServiceAccess = $null
+
+$Taskname = "serviceaccess"
+$HostName = ($CSVdata[$i].ServerName).ToLower()
+$DomainName = ($CSVdata[$i].MemberDomain).ToLower()
+$ResourceGroup = ($CSVdata[$i].MemberName).ToLower()
+$ServiceName = ($CSVdata[$i].ServiceName).ToLower()
+$ServiceAccess = ($CSVdata[$i].AccessRights).ToLower()
+$ServiceAccessfullform = ($CSVdata[$i].AccessRightsFullForm).ToLower()
+
+If ($ResourceGroup -ne "N/A")
+{ Add-content -Path $WindowsEntitlements -value ('"' + $Taskname + '","' + $HostName + '","' + $DomainName + '","' + $ResourceGroup + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + $ServiceName + '","' + $ServiceAccess + '","' + $ServiceAccessfullform + '"') }
+
+} #Forloop close ($i = 0; $i -le ($CSVdata.length-1); $i++)
+
+Log "Updated $CSV data on windows entitlement sheet"
+
+} #If condition close ($CSVname -like "Service_Access_Report")
+
+
+If ($CSVname -like "Share_NTFS_Access_Report")
+{
+
+Log "Collected $($CSVdata.length) records from $CSVname"
+
+For ($i = 0; $i -le ($CSVdata.length-1); $i++)
+{
+$Taskname = $null
+$HostName = $null
+$ShareName = $null
+$SharePath = $null
+$ShareAccess = $null
+$NTFSAccess = $null
+
+$ShareDomainName = $null
+$ShareResourceGroup = $null
+$NTFSDomainName = $null
+$NTFSResourceGroup = $null
+
+$Taskname = "shareaccess"
+$HostName = ($CSVdata[$i].ServerName).ToLower()
+$ShareName = ($CSVdata[$i].ShareName).ToLower()
+$SharePath = ($CSVdata[$i].LocalSharePath).ToLower()
+$ShareAccess = ($CSVdata[$i].ShareAccessLevel).ToLower()
+$NTFSAccess = ($CSVdata[$i].NTFSAccesslevel).ToLower()
+
+$ShareDomainName = ($CSVdata[$i].ShareMemberDomain).ToLower()
+$ShareResourceGroup = ($CSVdata[$i].ShareMemberName).ToLower()
+$NTFSDomainName = ($CSVdata[$i].NTFSMemberDomain).ToLower()
+$NTFSResourceGroup = ($CSVdata[$i].NTFSMemberName).ToLower()
+
+If (($ShareDomainName -eq $NTFSDomainName) -and ($ShareResourceGroup -eq $NTFSResourceGroup))
+{ Add-content -Path $WindowsEntitlements -value ('"' + $Taskname + '","' + $HostName + '","' + $ShareDomainName + '","' + $ShareResourceGroup + '","' + "" + '","' + $ShareName + '","' + $SharePath + '","' + $ShareAccess + '","' + $NTFSAccess + '","' + "" + '","' + "" + '"') }
+
+If ($ShareResourceGroup -eq "")
+{ Add-content -Path $WindowsEntitlements -value ('"' + $Taskname + '","' + $HostName + '","' + $NTFSDomainName + '","' + $NTFSResourceGroup + '","' + "" + '","' + $ShareName + '","' + $SharePath + '","' + "" + '","' + $NTFSAccess + '","' + "" + '","' + "" + '"') }
+
+If ($NTFSResourceGroup -eq "")
+{ Add-content -Path $WindowsEntitlements -value ('"' + $Taskname + '","' + $HostName + '","' + $ShareDomainName + '","' + $ShareResourceGroup + '","' + "" + '","' + $ShareName + '","' + $SharePath + '","' + $ShareAccess + '","' + "" + '","' + "" + '","' + "" + '"') }
+
+} #Forloop close ($i = 0; $i -le ($CSVdata.length-1); $i++)
+
+Log "Updated $CSV data on windows entitlement sheet"
+
+} #If condition close ($CSVname -like "Share_NTFS_Access_Report")
+
+
+If ($CSVname -like "Shutdown_Access_Report")
+{
+
+Log "Collected $($CSVdata.length) records from $CSVname"
+
+For ($i = 0; $i -le ($CSVdata.length-1); $i++)
+{
+$Taskname = $null
+$HostName = $null
+$DomainName = $null
+$ResourceGroup = $null
+
+$Taskname = "shutdownaccess"
+$HostName = ($CSVdata[$i].ServerName).ToLower()
+$DomainName = ($CSVdata[$i].MemberDomain).ToLower()
+$ResourceGroup = ($CSVdata[$i].MemberName).ToLower()
+
+Add-content -Path $WindowsEntitlements -value ('"' + $Taskname + '","' + $HostName + '","' + $DomainName + '","' + $ResourceGroup + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '"')
+} #Forloop close ($i = 0; $i -le ($CSVdata.length-1); $i++)
+
+Log "Updated $CSV data on windows entitlement sheet"
+
+} #If condition close ($CSVname -like "Shutdown_Access_Report")
+
+If ($CSVname -like "TS_Access_Report")
+{
+
+Log "Collected $($CSVdata.length) records from $CSVname"
+
+For ($i = 0; $i -le ($CSVdata.length-1); $i++)
+{
+$Taskname = $null
+$HostName = $null
+$DomainName = $null
+$ResourceGroup = $null
+
+$Taskname = "tsaccess"
+$HostName = ($CSVdata[$i].ServerName).ToLower()
+$DomainName = ($CSVdata[$i].MemberDomain).ToLower()
+$ResourceGroup = ($CSVdata[$i].MemberName).ToLower()
+
+Add-content -Path $WindowsEntitlements -value ('"' + $Taskname + '","' + $HostName + '","' + $DomainName + '","' + $ResourceGroup + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '","' + "" + '"')
+} #Forloop close ($i = 0; $i -le ($CSVdata.length-1); $i++)
+
+Log "Updated $CSV data on windows entitlement sheet"
+
+} #If condition close ($CSVname -like "TS_Access_Report")
+
+} #Forloop close ($CSV in $CSVS)
+
+
+Log "`r`n"
+Log "Combaining all CSV files and creating one consolidated report"
+[array]$csvs1 += Get-ChildItem $CSVDump | ? { ($_.name -eq "Windows_Entitlements.csv") }
+[array]$csvs1 += Get-ChildItem $CSVDump | ? { (($_.name -like "*.csv") -and ($_.name -notlike "*_dump.csv") -and ($_.name -ne "Windows_Entitlements.csv")) } | sort name
+
+If ($csvs1.length -ge "1")
+{
+
+Log "CSV dump files path : '$CSVDump'"
+Log "CSV dump file names - $csvs1.name"
+write-host "CSV dump files path : '$CSVDump'"  -fore green
+write-host "`r`n$csvs1"
+
+$excelapp = new-object -comobject Excel.Application
+$excelapp.sheetsInNewWorkbook = $csvs1.Count
+$xlsx = $excelapp.Workbooks.Add()
+$sheet=1
+$x = 0
+
+#Getting content form each CSV file and writing it to XLSX file
+foreach ($csv1 in $csvs1)
+{
+$x++
+Log "$x\$($csvs1.length). Collecting data from $csv1 file"
+
+$row=1
+$column=1
+$worksheet = $xlsx.Worksheets.Item($sheet)
+
+If ($csv1.name.length -ge 30)
+{
+$csvname = ($csv1.name).substring(0, [System.Math]::Min(30,$csv1.length))
+#($csvs1[0].fullname).Split("\")[$_.length-1]
+$worksheet.Name = ($csvname).split(".")[0]
+}
+else
+{
+$worksheet.Name = ($csv1.name).split(".")[0]
+} #If condition close ($csv1.name.length -ge 30)
+
+$file = (Get-Content $csv1.fullname) -replace '"',''
+
+foreach ($line in $file)
+{
+$linecontents=$line -split ‘,(?!\s*\w+”)’
+
+foreach ($cell in $linecontents)
+{
+$worksheet.Cells.Item($row,$column) = $cell
+$column++
+} #Forloop close ($cell in $linecontents)
+
+$column=1
+$row++
+} #Forloop close ($line in $file)
+
+$sheet++
+Log "Updated records in consolidated sheets"
+} #Forloop close ($csv1 in $csvs1)
+
+Log "Saving consolidated XLSX file"
+$xlsx.SaveAs($ConsolidatedDataExtractReport)
+$excelapp.quit()
+
+}
+else
+{
+Log "Found less than 2 CSV files on $CSVDump. So no action taken"
+write-host "Found less than 2 CSV files on $CSVDump. So no action taken" -fore red
+} #If condition close ($csvs1.length -ge "1")
+
+write-host "`r`nConsolidated report file path : '$ConsolidatedDataExtractReport'" -fore green
+Log "Consolidated report file path : '$ConsolidatedDataExtractReport'"
+
+Log "`r`n"
+Log "CSV files consolidation process completed`r`n"
+write-host "`r`nCSV files consolidation process completed`r`n" -fore yellow
+
+} #Function close (Consolidate-CSVfiles)
+
+
+
+###Function to fetch complete service details from given list of servers and generate a consolidated csv report
+Function Get-servicelist
+{
+
+write-host "`r`n*** Function started to capture the Service access information from the server listed in the input file ***`r`n" -fore yellow
+Log "`r`n"
+Log "*** Function started to capture the Service access information from the server listed in the input file ***"
+
+[int]$x = 0
+
+#Initializing $servicelistarray to store complete service related information
+$servicelistarray1 = @()
+$servicelistarray2 = @()
+$servicelistarray3 = @()
+
+#Fetching server list from input file and processing it thru for loop
+Foreach ($server in $serverlist)
+{
+
+$x++
+
+Log "`r`n"
+Log "$x\$($serverlist.length). Processing server - $server"
+write-host "$x\$($serverlist.length). Processing server - $server - " -nonewline
+
+$getdomain = $null
+$getdomainerror = $null
+
+Log "Validating server reachability and collecting domain name from $server"
+Try { $getdomain = Get-WmiObject Win32_ComputerSystem -ComputerName $server -ea stop | select -expandproperty domain }
+catch { $getdomainerror = "Yes" }
+
+If ($getdomainerror -ne "Yes")
+{
+
+Log "Server reachable"
+
+$Servicelistdata = $null
+$Servicelistdatacomplete = $null
+$y = 0
+
+Log "Collecting complete Services list"
+[array]$Servicelistdatacomplete = Get-WmiObject win32_service -computername $server | select-object Name, Displayname, StartMode, state, pathname, startname
+Log "Collected $($Servicelistdatacomplete.length) Services"
+
+For ($i = 0; $i -le ($Servicelistdatacomplete.length-1); $i++)
+{
+$y++
+
+#Initializing variables used in this forloop
+$serviceN = $null
+$serviceDN = $null
+$serviceSM = $null
+$serviceS = $null
+$servicePN1 = $null
+$servicePN = $null
+$serviceSN = $null
+$Serviceaccess = $null
+$Serviceaccessstatus = $null
+
+#Storing data collected from CSV file into variables
+$server = ($server).ToLower()
+$serviceN = ($Servicelistdatacomplete[$i].name).ToLower()
+$serviceDN = ($Servicelistdatacomplete[$i].Displayname).ToLower()
+$serviceSM = ($Servicelistdatacomplete[$i].StartMode).ToLower()
+$serviceS = ($Servicelistdatacomplete[$i].state).ToLower()
+$servicePN = (($Servicelistdatacomplete[$i].pathname).trim('"')).ToLower()
+$serviceSN = ($Servicelistdatacomplete[$i].startname).ToLower()
+
+Log "$y\$($Servicelistdatacomplete.length). Collecting access list from service '$serviceDN'"
+
+#Changing the text encoding to make it readable. Subinacl utility will produce the output in unicode format
+[Console]::OutputEncoding = [Text.Encoding]::Unicode
+
+$Serviceaccess = c:\Temp\Subinacl.exe /verbose=1 /nostatistic /SERVICE \\$server\$serviceN /DISPLAY
+
+#Changing back the text encoding to default
+[Console]::OutputEncoding = [Text.Encoding]::Default
+
+#Filtering unwanted lines from the pulled permission list
+For ($j = 0; $j -le ($Serviceaccess.length-1); $j++)
+{
+
+#Filtering default system account permissions and writing complete data into array for preparing dump file
+If (($Serviceaccess[$j].startswith("/grant=")) -and (!($Serviceaccess[$j].startswith("/grant=system="))) -and (!($Serviceaccess[$j].startswith("/grant=interactive="))) -and (!($Serviceaccess[$j].startswith("/grant=service="))) -and (!($Serviceaccess[$j].startswith("/grant=local service="))))
+{
+
+$Serviceaccessuserdomain = $null
+$serviceaccessuseracc = $null
+$serviceaccessrights = $null
+
+$Serviceaccessuserdomain1 = ($Serviceaccess[$j].Split("=")[1])
+$Serviceaccessuserdomain = $Serviceaccessuserdomain1.split("\")[0]
+$serviceaccessuseracc = ($Serviceaccess[$j].Split("=")[1]).split("\")[1]
+$serviceaccessrights = $Serviceaccess[$j].Split("=")[2]
+
+$servicelist1 = @()
+$servicelist1 = New-Object PSObject
+
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $server
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServerDomain" -Value $getdomain
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServiceName" -Value $serviceN
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServiceDisplayName" -Value $serviceDN
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "StartMode" -Value $serviceSM
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "Status" -Value $serviceS
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "Logon" -Value $serviceSN
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ExecutablePath" -Value ($servicePN).tostring()
+
+If ($serviceaccessuseracc -ne $null)
+{
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value $Serviceaccessuserdomain
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "MemberName" -Value $serviceaccessuseracc
+}
+else
+{
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value $serviceaccessuseracc
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "MemberName" -Value $Serviceaccessuserdomain
+} #If condition close ($serviceaccessuseracc -ne $null)
+
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "AccessRights" -Value $serviceaccessrights
+
+#Capture & update full form of permission list on last column for reference
+$serviceaccessrightsfullform = @()
+
+For ($l = 0; $l -le ($serviceaccessrights.length-1); $l++)
+{
+
+#Defining all permission types
+Switch ($serviceaccessrights[$l])
+{
+F { [string]$serviceaccessrightsfullform += "full control;" }
+R { [string]$serviceaccessrightsfullform += "generic read;" }
+W { [string]$serviceaccessrightsfullform += "generic write;" }
+X { [string]$serviceaccessrightsfullform += "generic execute;" }
+L { [string]$serviceaccessrightsfullform += "read control;" }
+Q { [string]$serviceaccessrightsfullform += "query service configuration;" }
+S { [string]$serviceaccessrightsfullform += "query service status;" }
+E { [string]$serviceaccessrightsfullform += "enumerate dependent services;" }
+C { [string]$serviceaccessrightsfullform += "service change configuration;" }
+T { [string]$serviceaccessrightsfullform += "start service;" }
+O { [string]$serviceaccessrightsfullform += "stop service;" }
+P { [string]$serviceaccessrightsfullform += "pause/continue service;" }
+I { [string]$serviceaccessrightsfullform += "interrogate service;" }
+U { [string]$serviceaccessrightsfullform += "service user-defined control commands;" }
+} #Switch close ($serviceaccessrights[$l])
+
+} #Forloop close ($l = 0; $l -le ($serviceaccessrights.length-1); $l++)
+
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "AccessRightsFullForm" -Value ($serviceaccessrightsfullform).trimend(";")
+
+$servicelistarray1 += $servicelist1
+
+$Serviceaccessstatus = "Pass"
+
+} #If condition close ( ($Serviceaccess[$j].startswith..
+
+} #Forloop close ($j = 0; $j -le ($Serviceaccess.length-1); $j++)
+
+#This condition is to handle service list which are not accessible because of only system accounts have access
+If ($Serviceaccessstatus -ne "Pass")
+{
+
+$servicelist1 = @()
+$servicelist1 = New-Object PSObject
+
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $server
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServerDomain" -Value $getdomain
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServiceName" -Value $serviceN
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServiceDisplayName" -Value $serviceDN
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "StartMode" -Value $serviceSM
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "Status" -Value $serviceS
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "Logon" -Value $serviceSN
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ExecutablePath" -Value ($servicePN).tostring()
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value "N/A"
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "MemberName" -Value "N/A"
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "AccessRights" -Value "N/A"
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "AccessRightsFullForm" -Value "N/A"
+
+$servicelistarray1 += $servicelist1
+
+} #If condition close ($Serviceaccessstatus -ne "Pass")
+
+Log "completed"
+
+} #For loop close ($i = 0; $i -le ($Servicelistdatacomplete.length-1); $i++)
+
+
+Log "Collecting Services list having name W3SVC, not having path 'c:\windows*' and not running as 'LocalSystem','system','NT AUTHORITY\LocalService','NT AUTHORITY\NetworkService'"
+#[array]$Servicelistdata = Get-WmiObject win32_service -computername $server | ? { (($_.name -match "W3SVC") -or (($_.startname -match "LocalSystem") -and ($_.pathname -notlike "*c:\windows\*")) -or (($_.startname -like "NT AUTHORITY\LocalService") -and ($_.pathname -notlike "*c:\windows\*")) -or (($_.startname -like "system") -and ($_.pathname -notlike "*c:\windows\*")) -or (($_.startname -like "NT AUTHORITY\NetworkService") -and ($_.pathname -notlike "*c:\windows\*")) -or (($_.startname -ne "LocalSystem") -and ($_.startname -ne "NT AUTHORITY\LocalService") -and ($_.startname -ne "system") -and ($_.startname -ne "NT AUTHORITY\NetworkService")))} | select-object Name, Displayname, StartMode, state, pathname, startname
+[array]$Servicelistdata = $servicelistarray1 | ? { (($_.ServiceName -match "W3SVC") -or (($_.Logon -match "LocalSystem") -and ($_.ExecutablePath -notlike "*c:\windows\*")) -or (($_.Logon -like "NT AUTHORITY\LocalService") -and ($_.ExecutablePath -notlike "*c:\windows\*")) -or (($_.Logon -like "system") -and ($_.ExecutablePath -notlike "*c:\windows\*")) -or (($_.Logon -like "NT AUTHORITY\NetworkService") -and ($_.ExecutablePath -notlike "*c:\windows\*")) -or (($_.Logon -ne "LocalSystem") -and ($_.Logon -ne "NT AUTHORITY\LocalService") -and ($_.Logon -ne "system") -and ($_.Logon -ne "NT AUTHORITY\NetworkService")))} | select-object ServiceName, ServiceDisplayName, StartMode, Status, ExecutablePath, Logon, MemberDomain, MemberName, AccessRights, AccessRightsFullForm
+Log "Collected $($Servicelistdata.length) Services having name W3SVC, not having path 'c:\windows*' and not running as 'LocalSystem','system','NT AUTHORITY\LocalService','NT AUTHORITY\NetworkService'" 
+
+For ($i = 0; $i -le ($Servicelistdata.length-1); $i++)
+{
+
+#Initializing variables used in this forloop
+$serviceN = $null
+$serviceDN = $null
+$serviceSM = $null
+$serviceS = $null
+$servicePN = $null
+$serviceSN = $null
+$Serviceaccess = $null
+$Serviceaccessstatus = $null
+
+#Storing data collected from CSV file into variables
+$server = ($server).ToLower()
+$serviceN = $Servicelistdata[$i].ServiceName
+$serviceDN = $Servicelistdata[$i].ServiceDisplayName
+$serviceSM = $Servicelistdata[$i].StartMode
+$serviceS = $Servicelistdata[$i].Status
+$servicePN = $Servicelistdata[$i].ExecutablePath
+$serviceSN = $Servicelistdata[$i].Logon
+$Serviceaccessuserdomain = $Servicelistdata[$i].MemberDomain
+$serviceaccessuseracc = $Servicelistdata[$i].MemberName
+$serviceaccessrights = $Servicelistdata[$i].AccessRights
+$serviceaccessrightsfullform = $Servicelistdata[$i].AccessRightsFullForm
+
+$servicelist2 = @()
+$servicelist2 = New-Object PSObject
+
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $server
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "ServerDomain" -Value $getdomain
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "ServiceName" -Value $serviceN
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "ServiceDisplayName" -Value $serviceDN
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "StartMode" -Value $serviceSM
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "Status" -Value $serviceS
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "Logon" -Value $serviceSN
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "ExecutablePath" -Value $servicePN
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value $Serviceaccessuserdomain
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "MemberName" -Value $serviceaccessuseracc
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "AccessRights" -Value $serviceaccessrights
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "AccessRightsFullForm" -Value $serviceaccessrightsfullform
+
+$servicelistarray2 += $servicelist2
+
+#Filtering permissions list to capture needed data for preparing windows entitlement sheet
+$servicelist3 = @()
+$servicelist3 = New-Object PSObject
+
+$servicelist3 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $server
+$servicelist3 | Add-Member -MemberType NoteProperty -Name "ServiceName" -Value $serviceN
+$servicelist3 | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value $Serviceaccessuserdomain
+$servicelist3 | Add-Member -MemberType NoteProperty -Name "MemberName" -Value $serviceaccessuseracc
+$servicelist3 | Add-Member -MemberType NoteProperty -Name "AccessRights" -Value $serviceaccessrights
+$servicelist3 | Add-Member -MemberType NoteProperty -Name "AccessRightsFullForm" -Value $serviceaccessrightsfullform
+
+$servicelistarray3 += $servicelist3
+
+} #Forloop close ($i = 0; $i -le ($Servicelistdata.length-1); $i++)
+
+write-host "Completed" -fore green
+
+}
+else
+{
+
+$servicelist1 = @()
+$servicelist1 = New-Object PSObject
+
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $server
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServerDomain" -Value "Server Unreachable"
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServiceName" -Value "Server Unreachable"
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ServiceDisplayName" -Value "Server Unreachable"
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "StartMode" -Value "Server Unreachable"
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "Status" -Value "Server Unreachable"
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "Logon" -Value "Server Unreachable"
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "ExecutablePath" -Value "Server Unreachable"
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value "Server Unreachable"
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "MemberName" -Value "Server Unreachable"
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "AccessRights" -Value "Server Unreachable"
+$servicelist1 | Add-Member -MemberType NoteProperty -Name "AccessRightsFullForm" -Value "Server Unreachable"
+
+$servicelistarray1 += $servicelist1
+
+$servicelist2 = @()
+$servicelist2 = New-Object PSObject
+
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $server
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "ServerDomain" -Value "Server Unreachable"
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "ServiceName" -Value "Server Unreachable"
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "ServiceDisplayName" -Value "Server Unreachable"
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "StartMode" -Value "Server Unreachable"
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "Status" -Value "Server Unreachable"
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "Logon" -Value "Server Unreachable"
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "ExecutablePath" -Value "Server Unreachable"
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value "Server Unreachable"
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "MemberName" -Value "Server Unreachable"
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "AccessRights" -Value "Server Unreachable"
+$servicelist2 | Add-Member -MemberType NoteProperty -Name "AccessRightsFullForm" -Value "Server Unreachable"
+
+$servicelistarray2 += $servicelist2
+
+$servicelist3 = @()
+$servicelist3 = New-Object PSObject
+
+$servicelist3 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $server
+$servicelist3 | Add-Member -MemberType NoteProperty -Name "ServiceName" -Value $serviceN
+$servicelist3 | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value "N/A"
+$servicelist3 | Add-Member -MemberType NoteProperty -Name "MemberName" -Value "N/A"
+$servicelist3 | Add-Member -MemberType NoteProperty -Name "AccessRights" -Value "N/A"
+
+$servicelistarray3 += $servicelist3
+
+Log "Server Not Reachable"
+write-host "Server Not reachable" -fore red
+
+} #If condition close ($getdomainerror -ne "Yes")
+
+} #For loop close ($server in $serverlist)
+
+#Exporting complete service data into CSV file
+$servicelistarray1 | Export-csv $CSVReportservicecompletedump -notypeinformation
+
+Log "Exported complete service list into CSV file $CSVReportservicecompletedump"
+
+#Exporting filtered service data into CSV file
+$servicelistarray2 | Export-csv $CSVReportservicedump -notypeinformation
+
+Log "Exported partially filtered service list into CSV file $CSVReportservicedump"
+
+$servicelistarray3 | Export-csv $CSVReportservice -notypeinformation
+
+Log "Exported fully filtered service list into CSV file $CSVReportservice"
+
+Log "`r`n"
+Log "Service access data pull process completed`r`n"
+write-host "`r`nService access data pull process completed`r`n" -fore yellow
+
+} #Function close (Get-servicelist)
+
+
+
+###Function to pull local group members from given list of servers and generate a consolidated csv report
+Function Get-localgroupandmembers
+{
+
+write-host "`r`n*** Function started to capture the local group members list from the server listed in the input file ***`r`n" -fore yellow
+Log "`r`n"
+Log "*** Function started to capture the local group members list from the server listed in the input file ***"
+
+[int]$x = 0
+$grouplistarray = @()
+
+#Writing header for CSV file. Used custom CSV file creation process to add data into CSV file
+Add-content -Path $CSVReportgroup -value ('"' + "ServerName" + '","' + "LocalGroupName" + '","' + "MemberDomain" + '","' + "MemberName" + '"')
+Add-content -Path $CSVReportgroupdump -value ('"' + "ServerName" + '","' + "ServerDomain" + '","' + "LocalGroupName" + '","' + "MemberDomain" + '","' + "MemberName" + '","' + "MemberType" + '","' + "SubGroupName" + '","' + "SubGroupMembers" + '","' + "FirstName" + '","' + "LastName" + '","' + "LastLogonTimeStamp" + '"')
+
+#Fetching server list from input file and processing it thru for loop
+Foreach ($server in $serverlist)
+{
+
+$x++
+Log "`r`n"
+Log "$x\$($serverlist.length). Processing server - $server"
+write-host "$x\$($serverlist.length). Processing server - $server - " -nonewline
+
+$Defaultsecuritygroups = $null
+$Defaultsecuritygroups = get-wmiobject -ComputerName $server -class "win32_systemaccount" -namespace "root\cimv2" | select -expandproperty name
+
+$getdomain = $null
+$getdomainerror = $null
+$server = ($server).ToLower()
+
+Log "Validating server reachability and collecting domain name from $server"
+Try { $getdomain = Get-WmiObject Win32_ComputerSystem -ComputerName $server -ea stop | select -expandproperty domain }
+catch { $getdomainerror = "Yes" }
+
+If ($getdomainerror -ne "Yes")
+{
+
+Log "Server reachable"
+
+#$groups = Get-WMIObject win32_group -ComputerName $Server | select -expandproperty name
+$groups = Get-WMIObject win32_group -filter "LocalAccount='True'" -computername $Server | select -expandproperty name
+
+Log "Collected $($groups.length) local groups"
+$y = 0
+
+Foreach ($localgroup in $groups)
+{
+
+$wmigroup = $null
+$arr = @()
+$localgroup = ($localgroup).ToLower()
+$y++
+
+Log "$y\$($groups.length). Collecting members list from local group $localgroup"
+$wmigroup = Get-WmiObject -ComputerName $Server -Query "SELECT * FROM Win32_GroupUser WHERE GroupComponent=`"Win32_Group.Domain='$server',Name='$localgroup'`""
+
+If ($wmigroup -ne $null)  
+{
+
+#Removing unwanted list from the WMI query output and store only needed permission data into variable $arr
+Foreach ($item in $wmigroup)
+{  
+$data = $item.PartComponent -split "\," 
+$domain = ($data[0] -split "=")[1] 
+$name = ($data[1] -split "=")[1] 
+[array]$arr += ("$domain\$name").Replace("""","") 
+[Array]::Sort($arr) 
+} #Forloop close ($item in $wmigroup)
+
+Log "collected $($arr.length) members"
+
+#Looping permission list to check for any nested groups
+Foreach ($ar in $arr)
+{
+
+$getADgroupmembers = $null
+$getADgroupmemberserror= $null
+$rootdomain = $null
+$rootusergroup = $null
+$rootFQDN = $null
+
+$rootdomain = ($ar.split("\")[0]).ToLower()
+$rootusergroup = ($ar.split("\")[1]).ToLower()
+$Domainnames = $null
+
+#Ignoring Domain users group
+If ($rootusergroup -notlike "*Domain Users*")
+{
+
+Add-content -Path $CSVReportgroup -value ('"' + $server + '","' + $localgroup + '","' + $rootdomain + '","' + $rootusergroup + '"')
+
+#Added all available domain names to query AD using FQDN according to the user account location
+If ($rootdomain -like "hbanc")
+{ $rootFQDN = "hbanc.hban.us" }
+
+If ($rootdomain -like "hbicorp")
+{ $rootFQDN = "hbicorp.huntington.com" }
+
+If ($rootdomain -like "hbient")
+{ $rootFQDN = "hbient.hbicorp.huntington.com" }
+
+If ($rootdomain -like "hbiusers")
+{ $rootFQDN = "hbiusers.hbicorp.huntington.com" }
+
+If ($rootdomain -like "qbanc")
+{ $rootFQDN = "qbanc.hban.us" }
+
+If ($rootdomain -like "hbicorptest")
+{ $rootFQDN = "hbicorptest.huntington.com" }
+
+If ($rootdomain -like "hbienttest")
+{ $rootFQDN = "hbienttest.hbicorp.huntington.com" }
+
+If ($rootdomain -like "hbiuserstest")
+{ $rootFQDN = "hbiuserstest.hbicorp.huntington.com" }
+
+Try { $getADgroupmembers = Get-ADGroupMember -Identity $rootusergroup -server $rootFQDN -ea stop | Select -expandproperty Name }
+Catch { $getADgroupmemberserror = "Yes" }
+
+#Used Get-Adgroup cmdlet check and filter groups
+If (($getADgroupmemberserror -ne "Yes") -and ([bool](Get-ADgroup $rootusergroup -server $rootFQDN)))
+{
+
+#Function to loop and fetch all nested group members
+Function Get-ADSGroupMember
+{
+
+Param(
+$group,
+$FQDN
+)
+
+#write-host $group
+#write-host $FQDN
+
+$group1 = ([string]$group).split(",")[0]
+$group1 = $group1.Replace("CN=","")
+Add-content -Path $CSVReportgroupdump -value ('"' + $server + '","' + $getdomain + '","' + $localgroup + '","' + $rootdomain + '","' + $rootusergroup + '","' + "Group" + '","' + $group1 + '"')
+
+Get-ADGroupMember $group -server $FQDN | sort objectclass -Descending | % { 
+
+$distinguishedName = $null
+$distinguishedNameArray = $null
+$DomainNameFECount = $null
+$distinguishedNameArrayItemDomainName = @()
+
+$distinguishedName = $_.distinguishedName
+[array]$distinguishedNameArray = $distinguishedName -Split(“,DC=”)
+[int]$DomainNameFECount = 0
+Foreach ($distinguishedNameArrayItem in $distinguishedNameArray)
+{
+IF ($DomainNameFECount -gt 0)
+{ [string]$distinguishedNameArrayItemDomainName += $distinguishedNameArrayItem + "." }
+$DomainNameFECount++
+}
+$FQDN = $distinguishedNameArrayItemDomainName.Substring(0,$distinguishedNameArrayItemDomainName.Length-1)
+
+If($_.objectClass -eq "group")
+{
+Log "$_ - Expanding this group"
+$subgroup = $null
+$subgroup = ([string]$_).split(",")[0]
+$subgroup = $subgroup.Replace("CN=","")
+Get-ADSGroupMember -group $_.SamAccountName -fqdn $FQDN
+#Add-content -Path $CSVReportgroupdump -value ('"' + $server + '","' + $getdomain + '","' + $localgroup + '","' + "" + '","' + $rootusergroup + '","' + "Group" + '","' + $subgroup + '"')
+}
+elseif($_.objectClass -eq "computer")
+{
+Log "$_ - Computer object"
+$subgroup1 = $null
+$subgroup1 = ([string]$_).split(",")[0]
+$subgroup1 = $subgroup1.Replace("CN=","")
+Add-content -Path $CSVReportgroupdump -value ('"' + $server + '","' + $getdomain + '","' + $localgroup + '","' + $rootdomain + '","' + $rootusergroup + '","' + "Computer" + '","' + "" + '","' + $subgroup1 + '"')
+}
+elseif($_.objectClass -eq $null)
+{
+Log "$_ - Build-inSecurityPrinciple object"
+Add-content -Path $CSVReportgroupdump -value ('"' + $server + '","' + $getdomain + '","' + $localgroup + '","' + $rootdomain + '","' + $rootusergroup + '","' + "Build-inSecurityPrinciple" + '","' + "" + '","' + "" + '"')
+}
+else
+{
+Log "$_ - User object"
+$subusers = $null
+
+$distinguishedName1 = $null
+$distinguishedName1Array = $null
+$DomainNameFECount = $null
+$distinguishedName1ArrayItemDomainName = @()
+
+$distinguishedName1 = $_.distinguishedName
+[array]$distinguishedName1Array = $distinguishedName1 -Split(“,DC=”)
+[int]$DomainNameFECount = 0
+ForEach ($distinguishedName1ArrayItem in $distinguishedName1Array)
+{
+IF ($DomainNameFECount -gt 0)
+{ [string]$distinguishedName1ArrayItemDomainName += $distinguishedName1ArrayItem + “.” }
+$DomainNameFECount++
+}
+$FQDN1 = $distinguishedName1ArrayItemDomainName.Substring(0,$distinguishedName1ArrayItemDomainName.Length-1)
+
+[array]$subusers = Get-ADUser $_.SamAccountName -server $FQDN1 -property Lastlogontimestamp -ea silentlycontinue | Select SamAccountName, GivenName, Surname, DistinguishedName, @{N="lastlogon";E={[datetime]::FromFileTime($_.lastlogontimestamp)}}
+For ($j=0; $j -le ($subusers.length-1); $j++)
+{
+$UserDN = $null
+$distinguishedName2 = $null
+$Usersamaccountname = $null
+
+$distinguishedName2 = $subusers[$j].DistinguishedName
+
+$UserDN = [regex]::Match($distinguishedName2,'DC=([^,|$]+)').Groups[1].Value
+$Usersamaccountname = $UserDN + "\" + $subusers[$j].SamAccountName
+
+Add-content -Path $CSVReportgroupdump -value ('"' + $server + '","' + $getdomain + '","' + $localgroup + '","' + $rootdomain + '","' + $rootusergroup + '","' + "User" + '","' + $group1 + '","' + $Usersamaccountname + '","' + $subusers[$j].GivenName + '","' + $subusers[$j].Surname + '","' + $subusers[$j].lastlogon + '"')
+} #Forloop close ($j=0; $j -le ($subusers.length-1); $j++)
+
+} #If condition close ($_.objectClass -eq "group")
+$subgroup = $null
+} #Foreachobject close
+
+} #Function close (Get-ADSGroupMember)
+
+Get-ADSGroupMember -group $rootusergroup -fqdn $rootFQDN
+}
+elseIf (($Domainnames -contains $rootdomain) -and ([bool](Get-ADComputer $rootusergroup)))
+{
+Add-content -Path $CSVReportgroupdump -value ('"' + $server + '","' + $getdomain + '","' + $localgroup + '","' + $rootdomain + '","' + $rootusergroup + '","' + "Computer" + '"')
+}
+elseif ($Defaultsecuritygroups -contains $rootusergroup)
+{
+Add-content -Path $CSVReportgroupdump -value ('"' + $server + '","' + $getdomain + '","' + $localgroup + '","' + $rootdomain + '","' + $rootusergroup + '","' + "Build-inSecurityPrinciple" + '"')
+}
+else
+{
+Add-content -Path $CSVReportgroupdump -value ('"' + $server + '","' + $getdomain + '","' + $localgroup + '","' + $rootdomain + '","' + $rootusergroup + '","' + "User" + '"')
+} #If condition close (($getADgroupmemberserror -ne "Yes") -and ([bool](Get-ADgroup $rootusergroup -server $rootFQDN)))
+
+} #If condition close ($rootusergroup -notlike "*Domain Users*")
+
+} #Forloop close ($ar in $arr)
+
+}
+else
+{
+Log "No members exist"
+} #If condition close ($wmigroup -ne $null)
+
+} #Forloop close ($localgroup in $groups)
+
+write-host "Completed" -fore green
+
+}
+else
+{
+Log "Server Not Reachable"
+write-host "Server Not Reachable" -fore red
+
+Add-content -Path $CSVReportgroupdump -value ('"' + $server + '","' + "Server Unreachable" + '","' + "Server Unreachable" + '","' + "Server Unreachable" + '","' + "Server Unreachable" + '","' + "Server Unreachable" + '","' + "SubGroupName" + '","' + "Server Unreachable" + '","' + "Server Unreachable" + '","' + "Server Unreachable" + '"')
+} #If condition close ($getdomainerror -ne "Yes")
+
+} #Forloop close ($server in $serverlist)
+
+Log "Exported complete local group members list into CSV file $CSVReportgroupdump"
+
+Log "Exported filtered local group members list into CSV file $CSVReportgroup"
+
+Remove-Module ActiveDirectory
+Log "Removed active directory module from powershell"
+
+Log "`r`n"
+Log "Local group members data pull process completed`r`n"
+write-host "`r`nLocal group members data pull process completed`r`n" -fore yellow
+
+} #Function close (Get-localgroupandmembers)
+
+
+
+###Function to get share folder names and its security permissions
+Function Get-ShareNTFSaccess
+{
+
+write-host "`r`n*** Function started to capture shared folder list with share and NTFS permission from the server listed in the input file ***`r`n" -fore yellow
+Log "`r`n"
+Log "*** Function started to capture shared folder list with share and NTFS permission from the server listed in the input file ***"
+
+$x = 0
+$GetShareNTFSvalarray = @()
+$GetShareNTFSvalarray1 = @()
+
+#Fetching server list from input file and processing it thru for loop
+Foreach ($server in $serverlist)
+{
+
+$x++
+$server = ($server).ToLower()
+
+Log "`r`n"
+Log "$x\$($serverlist.length). Processing server - $server"
+write-host "$x\$($serverlist.length). Processing server - $server - " -nonewline
+
+$getdomain = $null
+$getdomainerror = $null
+$sharefolders = $null
+
+Log "Validating server reachability and collecting domain name from $server"
+Try { $getdomain = Get-WmiObject Win32_ComputerSystem -ComputerName $server -ea stop | select -expandproperty domain }
+catch { $getdomainerror = "Yes" }
+
+If ($getdomainerror -ne "Yes")
+{
+
+Log "Server reachable"
+Log "Collecting all shared folder details"
+[array]$sharefolders = Get-WmiObject -Class Win32_Share -computer $server | ? { (($_.path -ne "") -and ($_.name -notmatch "print*") -and ($_.path -like "*:\*")) }
+Log "Collected $($sharefolders.length) shared folder(s)"
+$y = 0
+
+Foreach ($share in $sharefolders)
+{
+$y++
+
+$Sharename = $null
+$sharepath = $null
+$sharepath1 = $null
+$sharedes = $null
+
+$serSharename = $null
+$serSharename1 = $null
+$sersharepath = $null
+$sersharepath1 = $null
+
+$Sharepermissionlist1 = ""
+$NTFSpermissionlist = ""
+$NTFSpermissionlist1= $null
+$Sharepermissionlist = @()
+$ShareNTFSarraylength = $null
+$Maxarray = $null
+$Permissionlist = @()
+
+$Sharename = ($share.Name).ToLower()
+$sharepath = ($share.Path).ToLower()
+$sharepath1 = ($share.Path).replace(":","$")
+$sharedes = ($share.Description).ToLower()
+
+$serSharename1 = "\\$server\$Sharename"
+$serSharename = "\\" + $server + "\" + '"' + $Sharename + '"'
+$sersharepath = "\\$server\$sharepath1"
+
+Log "$y\$($sharefolders.length). Collecting share access list from shared folder $serSharename1"
+[array]$Sharepermissionlist1 = c:\Temp\Rmtshare.exe $serSharename
+
+Log "$y\$($sharefolders.length). Collecting NTFS access list from shared folder $sersharepath"
+#[array]$NTFSpermissionlist = Get-NTFSAccess $sersharepath | ? { (($_.Account -notlike "BUILTIN\Administrators") -and ($_.Account -notlike "NT AUTHORITY\SYSTEM") -and ($_.Account -notlike "NT SERVICE\TrustedInstaller")) } | select Account, AccessRights, Accesscontroltype, IsInherited, InheritedFrom, PropagationFlags, InheritanceFlags, InheritanceEnabled
+[array]$NTFSpermissionlist = Get-NTFSAccess $sersharepath | ? { ($_.Account -notlike "NT SERVICE\TrustedInstaller") } | select Account, AccessRights, Accesscontroltype, IsInherited, InheritedFrom, PropagationFlags, InheritanceFlags, InheritanceEnabled
+
+[array]$NTFSpermissionlist1 = $NTFSpermissionlist | select -exp account | select -exp accountname
+
+$GetOut = $False
+
+#Trimming unwanted lines from the RMTshare output and store only needed permission entries into $Sharepermissionlist array
+Foreach ($GetLine in $Sharepermissionlist1)
+{
+
+If ($GetLine -like "")
+{ $GetOut = $False }
+
+If ($GetOut -eq $True)
+{ $Sharepermissionlist += ($GetLine.trim()).ToLower() }
+
+If ($GetLine -like 'Permissions:')
+{ $GetOut = $True }
+
+} #Forloop close ($GetLine In $Sharepermissionlist1)
+
+If ($Sharepermissionlist)
+{ [array]$Sharepermissionlist = $Sharepermissionlist.replace(" ","") }
+
+Log "Collected $($Sharepermissionlist | measure-object | select -expandproperty count) members have share access"
+Log "Collected $($NTFSpermissionlist | measure-object | select -expandproperty count) members have NTFS access"
+
+#Comparing share and ntfs access list and considering the higher value of array length to use in forloop to capture data in to $GetShareNTFSvalarray 
+If ([bool](($Sharepermissionlist | measure-object | select -expandproperty count) -gt ($NTFSpermissionlist | measure-object | select -expandproperty count)))
+{
+$ShareNTFSarraylength = $Sharepermissionlist.length
+$Maxarray = "Share"
+}
+else
+{
+$ShareNTFSarraylength = $NTFSpermissionlist.length
+$Maxarray = "NTFS"
+} #If condition close ($Sharepermissionlist.length -gt $NTFSpermissionlist.length)
+
+#Adding complete shared folder access data into array
+For ($j = 0; $j -le ($ShareNTFSarraylength-1); $j++)
+{
+
+$Getval1 = $null
+$Getval2 = $null
+$Getval11 = $null
+$Getval12 = $null
+
+$NTFSaccessdomain = $null
+$NTFSaccessname = $null
+$NTFSaccessrights = $null
+$NTFSaccesstype = $null
+$NTFSaccessinheritance1 = $null
+$NTFSaccessinheritance2 = $null
+$NTFSaccessinheritance3 = $null
+$NTFSaccessinheritance4 = $null
+$NTFSaccesspropagation = $null
+
+#Splitting share access domain name and SAM account name
+If (($Sharepermissionlist) -and ($Sharepermissionlist[$j] -ne $null))
+{
+$Getval1 = ($Sharepermissionlist[$j].split(":")[0]).trim()
+$Getval2 = ($Sharepermissionlist[$j].split(":")[1]).trim()
+
+$Getval11 = $Getval1.split("\")[0]
+$Getval12 = $Getval1.split("\")[1]
+} #If condition close (($Sharepermissionlist) -and ($Sharepermissionlist[$j] -ne $null))
+
+#Splitting NTFS access domain name and SAM account name
+If (($NTFSpermissionlist) -and ($NTFSpermissionlist[$j] -ne $null))
+{
+$NTFSaccessdomain = ($NTFSpermissionlist[$j] | select -expandproperty account | select -expandproperty accountname).split("\")[0]
+$NTFSaccessname = ($NTFSpermissionlist[$j] | select -expandproperty account | select -expandproperty accountname).split("\")[1]
+
+$NTFSaccessrights = (($NTFSpermissionlist[$j].AccessRights).tostring()).replace(",",";")
+$NTFSaccesstype = $NTFSpermissionlist[$j].Accesscontroltype
+$NTFSaccessinheritance1 = $NTFSpermissionlist[$j].InheritanceEnabled
+$NTFSaccessinheritance2 = $NTFSpermissionlist[$j].IsInherited
+$NTFSaccessinheritance3 = $NTFSpermissionlist[$j].InheritedFrom
+$NTFSaccessinheritance4 = (($NTFSpermissionlist[$j].InheritanceFlags).tostring()).replace(",",";")
+$NTFSaccesspropagation = $NTFSpermissionlist[$j].PropagationFlags
+} #If condition close (($NTFSpermissionlist) -and ($NTFSpermissionlist[$j] -ne $null))
+
+#Capturing complete details in the csv file
+$GetShareNTFSval = @()
+$GetShareNTFSval = New-Object PSObject
+
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ServerDomain" -Value $getdomain
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ShareName" -Value $Sharename
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "NetworkSharePath" -Value $serSharename1
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "LocalSharePath" -Value $sharepath
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "Description" -Value $sharedes
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ShareMemberDomain" -Value $Getval11
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ShareMemberName" -Value $Getval12
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ShareAccessLevel" -Value $Getval2
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "NTFSMemberDomain" -Value $NTFSaccessdomain
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "NTFSMemberName" -Value $NTFSaccessname
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "NTFSAccesslevel" -Value $NTFSaccessrights
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "NTFSAccessType" -Value $NTFSaccesstype
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "InheritanceEnabled" -Value $NTFSaccessinheritance1
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "IsInherited" -Value $NTFSaccessinheritance2
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "InheritedFrom" -Value $NTFSaccessinheritance3
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "PropagationFlags" -Value $NTFSaccesspropagation
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "InheritanceFlags" -Value $NTFSaccessinheritance4
+
+$GetShareNTFSvalarray += $GetShareNTFSval
+
+} #Forloop close ($j = 0; $j -le ($ShareNTFSarraylength-1); $j++)
+
+
+#Adding filtered shared folder access data into array
+For ($j = 0; $j -le ($ShareNTFSarraylength-1); $j++)
+{
+
+If ($Maxarray -eq "Share")
+{
+
+$Permissionlist += $Sharepermissionlist[$j]
+
+If ([Bool]($NTFSpermissionlist1 | ? { $_ -like ($Sharepermissionlist[$j].split(":")[0]) }))
+{ $Permissionlist += $NTFSpermissionlist1 | ? { $_ -like ($Sharepermissionlist[$j].split(":")[0]) } }
+else
+{ $Permissionlist += "" }
+
+} #If condition close ($Maxarray -eq "Share")
+
+If ($Maxarray -eq "NTFS")
+{
+
+$Permissionlist += $NTFSpermissionlist1[$j]
+
+If ([Bool]($Sharepermissionlist | ? { $_ -like ("*" + $NTFSpermissionlist1[$j] + ":*")}))
+{ $Permissionlist += $Sharepermissionlist | ? { $_ -like ("*" + $NTFSpermissionlist1[$j] + ":*") } }
+else
+{ $Permissionlist += "" }
+
+} #If condition close ($Maxarray -eq "NTFS")
+
+} #Forloop close ($j = 0; $j -le ($ShareNTFSarraylength-1); $j++)
+
+If ($Maxarray -eq "Share")
+{ $NTFSpermissionlist1 | % { If ($Permissionlist -notcontains $_) { $permissionlist += ""; $permissionlist += $_ } } }
+
+If ($Maxarray -eq "NTFS")
+{ $Sharepermissionlist | % { If ($Permissionlist -notcontains $_) { $permissionlist += ""; $permissionlist += $_ } } }
+
+
+[int]$m = 0
+#$permissionlist = $permissionlist | ? { $_ -notlike "" } | select -uniq
+
+For ($j = 0; $j -le ($Permissionlist.length-1); $j++)
+{
+
+$Sharedomain = $null
+$Shareuser = $null
+$shareperm = $null
+
+$NTFSdomain = $null
+$NTFSuser = $null
+$NTFSperm = ""
+
+$m++
+
+If ($Maxarray -eq "Share")
+{
+If ($Permissionlist[$j])
+{
+$shareperm = ($Permissionlist[$j].split(":")[1]).trim()
+$shareperm1 = ($Permissionlist[$j].split(":")[0]).trim()
+
+$Sharedomain = $shareperm1.split("\")[0]
+$Shareuser = $shareperm1.split("\")[1]
+} #If condition close ($Permissionlist[$j])
+
+If ($Permissionlist[$m])
+{
+[array]$NTFSperm = $NTFSpermissionlist | ? { $_.account -eq $Permissionlist[$m] } | select-object @{N="Accessrights1";E={(($_.accessrights).tostring()).replace(",",";")}}
+
+If ($NTFSperm)
+{
+
+If ($NTFSperm.length -ge "2")
+{ $NTFSperm = $NTFSperm[0].AccessRights1 + $NTFSperm[1].AccessRights1 }
+else
+{ $NTFSperm = $NTFSperm[0].AccessRights1 }
+
+$NTFSdomain = $Permissionlist[$m].split("\")[0]
+$NTFSuser = $Permissionlist[$m].split("\")[1]
+
+}
+
+} #If condition close ($Permissionlist[$m])
+
+If ($NTFSdomain -like "*CREATOR OWNER*")
+{
+$NTFSuser = ($NTFSdomain).ToLower()
+$NTFSdomain = ""
+}
+
+If($NTFSdomain)
+{ $NTFSdomain = $NTFSdomain.tolower() }
+
+If($NTFSuser)
+{ $NTFSuser = $NTFSuser.tolower() }
+
+If($NTFSperm)
+{ $NTFSperm = (($NTFSperm | out-string).trim()).tolower() }
+
+
+#Capturing needed data in the csv file
+$GetShareNTFSval1 = @()
+$GetShareNTFSval1 = New-Object PSObject
+
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "ShareName" -Value $Sharename
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "LocalSharePath" -Value $sharepath
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "ShareMemberDomain" -Value $Sharedomain
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "ShareMemberName" -Value $Shareuser
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "ShareAccessLevel" -Value $shareperm
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "NTFSMemberDomain" -Value $NTFSdomain
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "NTFSMemberName" -Value $NTFSuser
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "NTFSAccesslevel" -Value ($NTFSperm | out-string).trim()
+
+$GetShareNTFSvalarray1 += $GetShareNTFSval1
+} #If condition close ($Maxarray -eq "Share")
+
+If ($Maxarray -eq "NTFS")
+{
+If ($Permissionlist[$m])
+{
+$shareperm = ($Permissionlist[$m].split(":")[1]).trim()
+$shareperm1 = ($Permissionlist[$m].split(":")[0]).trim()
+
+$Sharedomain = $shareperm1.split("\")[0]
+$Shareuser = $shareperm1.split("\")[1]
+}
+
+If ($Permissionlist[$j])
+{
+[array]$NTFSperm = $NTFSpermissionlist | ? { $_.account -eq $Permissionlist[$j] } | select-object @{N="Accessrights1";E={(($_.accessrights).tostring()).replace(",",";")}}
+
+If ($NTFSperm)
+{
+
+If ($NTFSperm.length -ge "2")
+{ $NTFSperm = $NTFSperm[0].AccessRights1 + $NTFSperm[1].AccessRights1 }
+else
+{ $NTFSperm = $NTFSperm[0].AccessRights1 }
+
+$NTFSdomain = $Permissionlist[$j].split("\")[0]
+$NTFSuser = $Permissionlist[$j].split("\")[1]
+}
+
+}
+
+If ($NTFSdomain -like "*CREATOR OWNER*")
+{
+$NTFSuser = ($NTFSdomain).ToLower()
+$NTFSdomain = ""
+}
+
+If($NTFSdomain)
+{ $NTFSdomain = $NTFSdomain.tolower() }
+
+If($NTFSuser)
+{ $NTFSuser = $NTFSuser.tolower() }
+
+If($NTFSperm)
+{ $NTFSperm = (($NTFSperm | out-string).trim()).tolower() }
+
+#Capturing needed data in the csv file
+$GetShareNTFSval1 = @()
+$GetShareNTFSval1 = New-Object PSObject
+
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "ShareName" -Value $Sharename
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "LocalSharePath" -Value $sharepath
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "ShareMemberDomain" -Value $Sharedomain
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "ShareMemberName" -Value $Shareuser
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "ShareAccessLevel" -Value $shareperm
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "NTFSMemberDomain" -Value $NTFSdomain
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "NTFSMemberName" -Value $NTFSuser
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "NTFSAccesslevel" -Value ($NTFSperm | out-string).trim()
+
+$GetShareNTFSvalarray1 += $GetShareNTFSval1
+} #If condition close ($Maxarray -eq "NTFS")
+
+$j++
+$m++
+
+} #Forloop close ($j = 0; $j -le ($Permissionlist.length-1); $j++)
+
+} #Forloop close ($share in $sharefolders)
+
+Write-host "Completed" -fore green
+
+}
+else
+{
+
+$GetShareNTFSval = @()
+$GetShareNTFSval = New-Object PSObject
+
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ServerDomain" -Value "Server Unreachable"
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ShareName" -Value "Server Unreachable"
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "NetworkSharePath" -Value "Server Unreachable"
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "LocalSharePath" -Value "Server Unreachable"
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ShareMemberDomain" -Value "Server Unreachable"
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ShareMemberName" -Value "Server Unreachable"
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "ShareAccessLevel" -Value "Server Unreachable"
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "NTFSMemberDomain" -Value "Server Unreachable"
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "NTFSMemberName" -Value "Server Unreachable"
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "NTFSAccesslevel" -Value "Server Unreachable"
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "NTFSAccessType" -Value "Server Unreachable"
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "InheritanceEnabled" -Value "Server Unreachable"
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "IsInherited" -Value "Server Unreachable"
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "InheritedFrom" -Value "Server Unreachable"
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "PropagationFlags" -Value "Server Unreachable"
+$GetShareNTFSval | Add-Member -MemberType NoteProperty -Name "InheritanceFlags" -Value "Server Unreachable"
+
+$GetShareNTFSvalarray += $GetShareNTFSval
+
+$GetShareNTFSval1 = @()
+$GetShareNTFSval1 = New-Object PSObject
+
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "ShareName" -Value "Server Unreachable"
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "LocalSharePath" -Value "Server Unreachable"
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "ShareMemberDomain" -Value "Server Unreachable"
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "ShareMemberName" -Value "Server Unreachable"
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "ShareAccessLevel" -Value "Server Unreachable"
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "NTFSMemberDomain" -Value "Server Unreachable"
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "NTFSMemberName" -Value "Server Unreachable"
+$GetShareNTFSval1 | Add-Member -MemberType NoteProperty -Name "NTFSAccesslevel" -Value "Server Unreachable"
+
+$GetShareNTFSvalarray1 += $GetShareNTFSval1
+
+Log "Server Not Reachable"
+Write-host "Server Not Reachable" -fore red
+
+} #If condition close ($getdomainerror -ne "Yes")
+
+} #Forloop close ($server in $serverlist)
+
+#Exporting complete shared folder list with share and NTFS access
+$GetShareNTFSvalarray | Export-csv $CSVReportsharedump -notypeinformation
+
+Log "Exported complete shared folder list with share and NTFS access into CSV file $CSVReportsharedump"
+
+#Exporting filtered shared folder list with share and NTFS access
+$GetShareNTFSvalarray1 | select -unique servername, sharename, localsharepath, shareMemberDomain, shareMemberName, shareaccesslevel, NTFSMemberDomain, NTFSMemberName, NTFSAccesslevel | Export-csv $CSVReportshare -notypeinformation
+
+Log "Exported filtered shared folder list with share and NTFS access into CSV file $CSVReportshare"
+
+Remove-Module NTFSSecurity
+If ([bool](get-module NTFSSecurity.Init))
+{ Remove-Module NTFSSecurity.Init }
+Log "Removed NTFSSecurity module from powershell"
+
+Log "`r`n"
+Log "Shared folder access data pull process completed`r`n"
+write-host "`r`nShared folder access data pull process completed`r`n" -fore yellow
+
+} #Function close (Get-ShareNTFSaccess)
+
+
+
+###Function to get TS access list
+Function Get-TSaccess
+{
+
+write-host "`r`n*** Function started to capture TS access list from the server listed in the input file ***`r`n" -fore yellow
+Log "`r`n"
+Log "*** Function started to capture TS access list from the server listed in the input file ***"
+
+[int]$x = 0
+
+$TSaccessvalarray = @()
+$TSaccessvalarray1 = @()
+
+#Fetching server list from input file and processing it thru for loop
+Foreach ($server in $serverlist)
+{
+
+$x++
+$Server = $Server.Tolower()
+
+Log "`r`n"
+Log "$x\$($serverlist.length). Processing server - $server"
+write-host "$x\$($serverlist.length). Processing server - $server - " -nonewline
+
+$getdomain = $null
+$getdomainerror = $null
+
+Log "Validating server reachability and collecting domain name from $server"
+Try { $getdomain = Get-WmiObject Win32_ComputerSystem -ComputerName $server -ea stop | select -expandproperty domain }
+catch { $getdomainerror = "Yes" }
+
+If ($getdomainerror -ne "Yes")
+{
+
+Log "Server reachable"
+
+$TSaccesslist = $null
+
+Log "Collecting members list having TS access"
+[array]$TSaccesslist = get-WmiObject -Namespace "root/cimv2/terminalservices" -Class Win32_TSAccount -computername $server | ? { (($_.TerminalName -eq "RDP-Tcp") -and ($_.AccountName -ne "")) } | select -expandproperty AccountName
+Log "Collected $($TSaccesslist.length) members having TS access"
+
+For ([int]$j = 0; $j -le ($TSaccesslist.length-1); $j++)
+{
+
+$TSaccessdomain= $null
+$TSaccessuser = $null
+
+#Splitting domain name and SAM account name to print in CSV file
+$TSaccessdomain = (($TSaccesslist[$j]).split("\")[0]).Tolower()
+$TSaccessuser = (($TSaccesslist[$j]).split("\")[1]).Tolower()
+
+#print common headers like servername,domain name once per server in the CSV report
+$TSaccessval = @()
+$TSaccessval = New-Object PSObject
+
+$TSaccessval | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$TSaccessval | Add-Member -MemberType NoteProperty -Name "ServerDomain" -Value $getdomain
+$TSaccessval | Add-Member -MemberType NoteProperty -Name "TerminalName" -Value "RDP-TCP"
+$TSaccessval | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value $TSaccessdomain
+$TSaccessval | Add-Member -MemberType NoteProperty -Name "MemberName" -Value $TSaccessuser
+
+$TSaccessvalarray += $TSaccessval
+
+$TSaccessval1 = @()
+$TSaccessval1 = New-Object PSObject
+
+$TSaccessval1 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$TSaccessval1 | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value $TSaccessdomain
+$TSaccessval1 | Add-Member -MemberType NoteProperty -Name "MemberName" -Value $TSaccessuser
+
+$TSaccessvalarray1 += $TSaccessval1
+} #Forloop close ($j = 0; $j -le ($TSaccesslist.length-1); $j++)
+
+}
+else
+{
+
+$TSaccessval = @()
+$TSaccessval = New-Object PSObject
+
+$TSaccessval | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$TSaccessval | Add-Member -MemberType NoteProperty -Name "ServerDomain" -Value "Server Unreachable"
+$TSaccessval | Add-Member -MemberType NoteProperty -Name "TerminalName" -Value "Server Unreachable"
+$TSaccessval | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value "Server Unreachable"
+$TSaccessval | Add-Member -MemberType NoteProperty -Name "MemberName" -Value "Server Unreachable"
+
+$TSaccessvalarray += $TSaccessval
+
+$TSaccessval1 = @()
+$TSaccessval1 = New-Object PSObject
+
+$TSaccessval1 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$TSaccessval1 | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value "Server Unreachable"
+$TSaccessval1 | Add-Member -MemberType NoteProperty -Name "MemberName" -Value "Server Unreachable"
+
+$TSaccessvalarray1 += $TSaccessval1
+
+} #If condition close ($getdomainerror -ne "Yes")
+
+Write-host "Completed" -fore green
+
+} #Forloop close ($server in $serverlist)
+
+#Exporting complete TS access list into CSV file $CSVReportTSaccess"
+$TSaccessvalarray | Export-csv $CSVReportTSaccessdump -notypeinformation
+
+Log "Exported complete TS access list into CSV file $CSVReportTSaccessdump"
+
+#Exporting filtered TS access list into CSV file $CSVReportTSaccess"
+$TSaccessvalarray1 | Export-csv $CSVReportTSaccess -notypeinformation
+
+Log "Exported filtered TS access list into CSV file $CSVReportTSaccess"
+
+Log "`r`n"
+Log "TS access data pull process completed`r`n"
+write-host "`r`nTS access data pull process completed`r`n" -fore yellow
+
+} #Function close (Get-TSaccess)
+
+
+
+###Function to get shutdown access list
+Function Get-Shutdownaccess
+{
+
+write-host "`r`n*** Function started to capture Shutdown access list from the server listed in the input file ***`r`n" -fore yellow
+Log "`r`n"
+Log "*** Function started to capture Shutdown access list from the server listed in the input file ***"
+
+[int]$x = 0
+
+$Getshutdownaccessarray = @()
+$Getshutdownaccessarray1 = @()
+
+#Fetching server list from input file and processing it thru for loop
+Foreach ($server in $serverlist)
+{
+
+$x++
+$Server = $Server.Tolower()
+
+Log "`r`n"
+Log "$x\$($serverlist.length). Processing server - $server"
+write-host "$x\$($serverlist.length). Processing server - $server - " -nonewline
+
+$getdomain = $null
+$getdomainerror = $null
+
+Log "Validating server reachability and collecting domain name from $server"
+Try { $getdomain = Get-WmiObject Win32_ComputerSystem -ComputerName $server -ea stop | select -expandproperty domain }
+catch { $getdomainerror = "Yes" }
+
+If ($getdomainerror -ne "Yes")
+{
+
+Log "$server - Server reachable"
+
+$Getshutdownaccessdata = $null
+
+Log "Collection members having shutdown access"
+[array]$Getshutdownaccessdata = Get-AccountsWithUserRight -Computer $server -Right "SeShutdownPrivilege" | select -expandproperty Account
+Log "Collected $($Getshutdownaccessdata.length) members having shutdown access"
+
+For ($i = 0; $i -le ($Getshutdownaccessdata.length-1); $i++)
+{
+
+$Shutdownaccessdomain = $null
+$Shutdownaccessuser= $null
+
+#Splitting domain name and SAM account name to write into CSV file
+$Shutdownaccessdomain = ($Getshutdownaccessdata[$i].split("\")[0]).Tolower()
+$Shutdownaccessuser = ($Getshutdownaccessdata[$i].split("\")[1]).Tolower()
+
+#print common headers like servername,domain name once per server in the CSV report
+$Getshutdownaccesslist = @()
+$Getshutdownaccesslist = New-Object PSObject
+
+$Getshutdownaccesslist | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$Getshutdownaccesslist | Add-Member -MemberType NoteProperty -Name "ServerDomain" -Value $getdomain
+$Getshutdownaccesslist | Add-Member -MemberType NoteProperty -Name "AccessRights" -Value "SeShutdownPrivilege"
+$Getshutdownaccesslist | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value $Shutdownaccessdomain
+$Getshutdownaccesslist | Add-Member -MemberType NoteProperty -Name "MemberName" -Value $Shutdownaccessuser
+
+$Getshutdownaccessarray += $Getshutdownaccesslist
+
+$Getshutdownaccesslist1 = @()
+$Getshutdownaccesslist1 = New-Object PSObject
+
+$Getshutdownaccesslist1 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$Getshutdownaccesslist1 | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value $Shutdownaccessdomain
+$Getshutdownaccesslist1 | Add-Member -MemberType NoteProperty -Name "MemberName" -Value $Shutdownaccessuser
+
+$Getshutdownaccessarray1 += $Getshutdownaccesslist1
+
+} #Forloop close ($i = 0; $i -le ($Getshutdownaccessdata.length-1); $i++)
+
+}
+else
+{
+$Getshutdownaccesslist = @()
+$Getshutdownaccesslist = New-Object PSObject
+
+$Getshutdownaccesslist | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$Getshutdownaccesslist | Add-Member -MemberType NoteProperty -Name "ServerDomain" -Value "Server Unreachable"
+$Getshutdownaccesslist | Add-Member -MemberType NoteProperty -Name "AccessRights" -Value "Server Unreachable"
+$Getshutdownaccesslist | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value "Server Unreachable"
+$Getshutdownaccesslist | Add-Member -MemberType NoteProperty -Name "MemberName" -Value "Server Unreachable"
+
+$Getshutdownaccessarray += $Getshutdownaccesslist
+
+$Getshutdownaccesslist1 = @()
+$Getshutdownaccesslist1 = New-Object PSObject
+
+$Getshutdownaccesslist1 | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $Server
+$Getshutdownaccesslist1 | Add-Member -MemberType NoteProperty -Name "MemberDomain" -Value "Server Unreachable"
+$Getshutdownaccesslist1 | Add-Member -MemberType NoteProperty -Name "MemberName" -Value "Server Unreachable"
+
+$Getshutdownaccessarray1 += $Getshutdownaccesslist1
+} #If condition close ($getdomainerror -ne "Yes")
+
+Write-host "Completed" -fore green
+
+} #Forloop close ($server in $serverlist)
+
+#Exporting completed Shutdown access list
+$Getshutdownaccessarray | Export-csv $CSVReportShutdownaccessdump -notypeinformation
+
+Log "Exported completed Shutdown access list into CSV file $CSVReportShutdownaccessdump"
+
+#Exporting filtered Shutdown access list
+$Getshutdownaccessarray1 | Export-csv $CSVReportShutdownaccess -notypeinformation
+
+Log "Exported filered Shutdown access list into CSV file $CSVReportShutdownaccess"
+
+Remove-Module UserRights
+Log "Removed UserRights module from powershell"
+
+Log "`r`n"
+Log "Shutdown access data pull process completed`r`n"
+write-host "`r`nShutdown access data pull process completed`r`n" -fore yellow
+
+} #Function close (Get-Shutdownaccess)
+
+
+
+
+#####Trigger Functions#####
+
+Get-servicelist
+
+Get-localgroupandmembers
+
+Get-ShareNTFSaccess
+
+Get-TSaccess
+
+Get-Shutdownaccess
+
+Consolidate-CSVfiles
+
+Remove-prerequisites
+
+###########################
+
+
+
+
+Log "`r`n"
+Log "*** Data Extract Script Completed ***"
+write-host "`r`n*** Data Extract Script Completed ***`r`n" -fore cyan
+
+
+#End of script..
